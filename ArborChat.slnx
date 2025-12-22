@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="ArborChat.csproj" />
+  <Project Path="ArborChat.Tests/ArborChat.Tests.csproj" />
+</Solution>

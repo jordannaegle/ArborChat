@@ -7,7 +7,7 @@ using ArborChat.Models; // Added this line
 
 namespace ArborChat.Services
 {
-    public class DatabaseService
+    public class DatabaseService : IDatabaseService
     {
         private SQLiteAsyncConnection _database;
 
@@ -15,15 +15,25 @@ namespace ArborChat.Services
         {
         }
 
-        async Task Init()
+        public DatabaseService(SQLiteAsyncConnection connection)
+        {
+            _database = connection;
+        }
+
+        private async Task Init()
         {
             if (_database is not null)
+            {
+                await _database.CreateTableAsync<ChatSession>();
+                await _database.CreateTableAsync<ChatMessage>();
+                await _database.CreateTableAsync<Settings>();
                 return;
+            }
 
             _database = new SQLiteAsyncConnection(Constants.DatabasePath, Constants.Flags);
             await _database.CreateTableAsync<ChatSession>();
             await _database.CreateTableAsync<ChatMessage>();
-            await _database.CreateTableAsync<Settings>(); // Added this line
+            await _database.CreateTableAsync<Settings>();
         }
 
         // --- ChatSession CRUD ---
@@ -65,7 +75,7 @@ namespace ArborChat.Services
         public async Task<List<ChatMessage>> GetChatMessagesAsync(int sessionId)
         {
             await Init();
-            return await _database.Table<ChatMessage>().Where(m => m.SessionId == sessionId && !m.ParentMessageId.HasValue).ToListAsync();
+            return await _database.Table<ChatMessage>().Where(m => m.SessionId == sessionId && m.ParentMessageId == null).ToListAsync();
         }
 
         public async Task<List<ChatMessage>> GetThreadMessagesAsync(int parentMessageId)

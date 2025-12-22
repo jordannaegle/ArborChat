@@ -12,7 +12,7 @@ namespace ArborChat.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
-        private readonly DatabaseService _databaseService;
+        private readonly IDatabaseService _databaseService;
 
         [ObservableProperty]
         private ObservableCollection<ChatSession> _chatSessions;
@@ -48,7 +48,7 @@ namespace ArborChat.ViewModels
                         public ICommand SendThreadMessageCommand { get; }
                         public ICommand CloseThreadCommand { get; } // New command
                 
-                        public MainViewModel(DatabaseService databaseService)
+                        public MainViewModel(IDatabaseService databaseService, bool loadData = true)
                         {
                             _databaseService = databaseService;
                             ChatSessions = new ObservableCollection<ChatSession>();
@@ -62,7 +62,10 @@ namespace ArborChat.ViewModels
                             SendThreadMessageCommand = new AsyncRelayCommand(SendThreadMessage);
                             CloseThreadCommand = new RelayCommand(CloseThread); // New command initialization
                 
-                            LoadChatSessions();
+                            if (loadData)
+                            {
+                                LoadChatSessions();
+                            }
                         }
                 
                         partial void OnSelectedThreadParentMessageChanged(ChatMessage value)
