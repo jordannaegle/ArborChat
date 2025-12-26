@@ -1,58 +1,6 @@
-# Visual Studio
-.vs/
-*.sln.opt
-*.suo
-*.user
-*.userosf
-*.userprefs
-*.v12.suo
-*.v14.suo
-*.v15.suo
-*.v16.suo
-*.v17.suo
-
-# Build results
-[Dd]ebug/
-[Rr]elease/
-[Bb]in/
-[Oo]bj/
-*.exe
-*.dll
-*.pdb
-*.tmp
-*.log
-*.vspscc
-*.vssscc
-*.vshost.exe
-*.opendb
-*.sqlproj.user
-*.dbmdl
-*.jfm
-*.tlog
-*.scratch
-
-# Packages
-packages/
-*.nupkg
-.nuget/
-build/
-.packageinfo
-
-# Rider
-.idea/
-*.iml
-*.iws
-*.ipr
-
-# Visual Studio Code
-.vscode/
-
-# Node.js and npm
-node_modules/
-package-lock.json
-
-# macOS
+node_modules
+dist
+out
 .DS_Store
-
-# Windows
-Thumbs.db
+.eslintcache
+*.log*
