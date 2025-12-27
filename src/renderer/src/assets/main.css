@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* Custom theme configuration for ArborChat */
 @theme {
@@ -6,17 +6,18 @@
   --color-background: #36393f;
   --color-secondary: #2f3136;
   --color-tertiary: #202225;
-  --color-primary: #5865F2;
+  --color-primary: #5865f2;
   --color-text-normal: #dcddde;
   --color-text-muted: #72767d;
-  
+
   /* Extended palette */
   --color-success: #3ba55c;
   --color-warning: #faa61a;
   --color-danger: #ed4245;
-  
+
   /* Font families */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   --font-mono: 'SF Mono', Monaco, Inconsolata, 'Fira Code', 'Fira Mono', monospace;
 }
 
@@ -105,13 +106,23 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes bounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-4px); }
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-4px);
+  }
 }
 
 .animate-bounce {

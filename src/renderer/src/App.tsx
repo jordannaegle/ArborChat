@@ -28,15 +28,25 @@ function ApiKeyPrompt({ onSave }: { onSave: (k: string) => void }) {
           <h3 className="font-semibold text-white">How to get a key:</h3>
           <ol className="list-decimal list-inside space-y-2 text-text-muted">
             <li>
-              Go to <a href="#" onClick={() => window.open('https://aistudio.google.com/app/apikey', '_blank')} className="text-primary hover:underline">aistudio.google.com/app/apikey</a>
+              Go to{' '}
+              <a
+                href="#"
+                onClick={() => window.open('https://aistudio.google.com/app/apikey', '_blank')}
+                className="text-primary hover:underline"
+              >
+                aistudio.google.com/app/apikey
+              </a>
             </li>
             <li>Log in with Google.</li>
-            <li>Click <strong>"Create API key"</strong>.</li>
+            <li>
+              Click <strong>"Create API key"</strong>.
+            </li>
             <li>Copy the key.</li>
             <li>Paste it below.</li>
           </ol>
           <div className="text-xs text-text-muted/80 pt-2 border-t border-secondary mt-2">
-            Your key is stored <strong>locally</strong> in a secure database on your machine. We do not track or sync your keys.
+            Your key is stored <strong>locally</strong> in a secure database on your machine. We do
+            not track or sync your keys.
           </div>
         </div>
 
@@ -44,7 +54,7 @@ function ApiKeyPrompt({ onSave }: { onSave: (k: string) => void }) {
           <input
             type="password"
             value={key}
-            onChange={e => setKey(e.target.value)}
+            onChange={(e) => setKey(e.target.value)}
             className="w-full bg-tertiary border border-gray-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-primary placeholder-text-muted/50"
             placeholder="AIzaSy..."
           />
@@ -90,21 +100,26 @@ function SettingsModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md space-y-6 border border-tertiary" onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md space-y-6 border border-tertiary"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold text-white">Settings</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-white">✕</button>
+          <button onClick={onClose} className="text-text-muted hover:text-white">
+            ✕
+          </button>
         </div>
 
         {/* Model Selection */}
         <div className="space-y-2">
           <h3 className="text-sm font-medium text-white">AI Model</h3>
           <p className="text-xs text-text-muted">Choose which Gemini model to use for chat.</p>
-          <ModelSelector
-            selectedModel={selectedModel}
-            onModelChange={handleModelChange}
-          />
+          <ModelSelector selectedModel={selectedModel} onModelChange={handleModelChange} />
         </div>
 
         {/* API Key */}
@@ -117,7 +132,7 @@ function SettingsModal({
           <input
             type="password"
             value={key}
-            onChange={e => setKey(e.target.value)}
+            onChange={(e) => setKey(e.target.value)}
             className="w-full bg-tertiary border border-gray-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-primary placeholder-text-muted/50"
             placeholder="AIzaSy... (New Key)"
           />
@@ -165,10 +180,7 @@ function App() {
 
   // Init
   useEffect(() => {
-    Promise.all([
-      window.api.getApiKey(),
-      window.api.getSelectedModel()
-    ]).then(([key, model]) => {
+    Promise.all([window.api.getApiKey(), window.api.getSelectedModel()]).then(([key, model]) => {
       if (key) setApiKey(key)
       if (model) setSelectedModel(model)
       setLoading(false)
@@ -194,38 +206,44 @@ function App() {
 
   // Views
   const mainMessages = useMemo(() => {
-    const base = allMessages.filter(m => !m.parent_message_id)
+    const base = allMessages.filter((m) => !m.parent_message_id)
     if (pending && streamingContent && !activeThreadRootId) {
-      return [...base, {
-        id: 'temp-streaming',
-        conversation_id: activeId!,
-        role: 'assistant' as const,
-        content: streamingContent,
-        parent_message_id: null,
-        created_at: new Date().toISOString()
-      }]
+      return [
+        ...base,
+        {
+          id: 'temp-streaming',
+          conversation_id: activeId!,
+          role: 'assistant' as const,
+          content: streamingContent,
+          parent_message_id: null,
+          created_at: new Date().toISOString()
+        }
+      ]
     }
     return base
   }, [allMessages, pending, streamingContent, activeThreadRootId, activeId])
 
   const threadMessages = useMemo(() => {
     if (!activeThreadRootId) return []
-    const base = allMessages.filter(m => m.parent_message_id === activeThreadRootId)
+    const base = allMessages.filter((m) => m.parent_message_id === activeThreadRootId)
     if (pending && streamingContent && activeThreadRootId) {
-      return [...base, {
-        id: 'temp-streaming',
-        conversation_id: activeId!,
-        role: 'assistant' as const,
-        content: streamingContent,
-        parent_message_id: activeThreadRootId,
-        created_at: new Date().toISOString()
-      }]
+      return [
+        ...base,
+        {
+          id: 'temp-streaming',
+          conversation_id: activeId!,
+          role: 'assistant' as const,
+          content: streamingContent,
+          parent_message_id: activeThreadRootId,
+          created_at: new Date().toISOString()
+        }
+      ]
     }
     return base
   }, [allMessages, activeThreadRootId, pending, streamingContent, activeId])
 
   const rootMessage = useMemo(() => {
-    return allMessages.find(m => m.id === activeThreadRootId) || null
+    return allMessages.find((m) => m.id === activeThreadRootId) || null
   }, [allMessages, activeThreadRootId])
 
   // Logic
@@ -236,39 +254,42 @@ function App() {
 
     // Save User Message
     const userMsg = await window.api.addMessage(activeId, 'user', content, parentId)
-    setAllMessages(prev => [...prev, userMsg])
+    setAllMessages((prev) => [...prev, userMsg])
 
     // Auto-name conversation from first user message (if still "New Chat")
-    const currentConv = conversations.find(c => c.id === activeId)
+    const currentConv = conversations.find((c) => c.id === activeId)
     if (currentConv && currentConv.title === 'New Chat' && !parentId) {
       const autoTitle = content.length > 40 ? content.slice(0, 40) + '...' : content
       await window.api.updateConversationTitle(activeId, autoTitle)
-      setConversations(prev => prev.map(c =>
-        c.id === activeId ? { ...c, title: autoTitle } : c
-      ))
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? { ...c, title: autoTitle } : c))
+      )
     }
 
     // Build Context (Isolated Threading Logic)
-    const system: { role: 'system', content: string } = { role: 'system', content: 'You are ArborChat, an intelligent assistant.' }
+    const system: { role: 'system'; content: string } = {
+      role: 'system',
+      content: 'You are ArborChat, an intelligent assistant.'
+    }
 
     let context: any[] = []
 
     if (parentId) {
       // Thread Context: Only Root + Thread History
-      const root = allMessages.find(m => m.id === parentId)
+      const root = allMessages.find((m) => m.id === parentId)
       if (!root) return
 
       context = [
         system,
         { role: 'user', content: `[Context: Thread on previous message: "${root.content}"]` }, // Provide context about what we are threading on
-        ...threadMessages.map(m => ({ role: m.role, content: m.content })),
+        ...threadMessages.map((m) => ({ role: m.role, content: m.content })),
         { role: 'user', content: content }
       ]
     } else {
       // Main Context
       context = [
         system,
-        ...mainMessages.map(m => ({ role: m.role, content: m.content })),
+        ...mainMessages.map((m) => ({ role: m.role, content: m.content })),
         { role: 'user', content: content }
       ]
     }
@@ -294,7 +315,7 @@ function App() {
       if (!finalContent) return
 
       const aiMsg = await window.api.addMessage(activeId, 'assistant', finalContent, parentId)
-      setAllMessages(prev => [...prev, aiMsg])
+      setAllMessages((prev) => [...prev, aiMsg])
       setStreamingContent('')
     })
 
@@ -312,7 +333,7 @@ function App() {
         parent_message_id: parentId,
         created_at: new Date().toISOString()
       }
-      setAllMessages(prev => [...prev, errorMsg])
+      setAllMessages((prev) => [...prev, errorMsg])
       // Optionally save to DB if we want errors to persist, but maybe not for transient API errors.
       // For now, just show it.
     })
@@ -320,7 +341,12 @@ function App() {
     window.api.askAI(apiKey, context, selectedModel)
   }
 
-  if (loading) return <div className="h-screen bg-background flex items-center justify-center text-white"><Loader2 className="animate-spin" /></div>
+  if (loading)
+    return (
+      <div className="h-screen bg-background flex items-center justify-center text-white">
+        <Loader2 className="animate-spin" />
+      </div>
+    )
   if (!apiKey) return <ApiKeyPrompt onSave={setApiKey} />
 
   return (
@@ -332,6 +358,8 @@ function App() {
         rootMessage={rootMessage}
         threadMessages={threadMessages}
         pending={pending}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
         onSelectConversation={setActiveId}
         onNewChat={async () => {
           const c = await window.api.createConversation('New Chat')
@@ -345,9 +373,7 @@ function App() {
         }}
         onRenameConversation={async (id, title) => {
           await window.api.updateConversationTitle(id, title)
-          setConversations(prev => prev.map(c =>
-            c.id === id ? { ...c, title } : c
-          ))
+          setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)))
         }}
         onSendMessage={handleSendMessage}
         onThreadSelect={setActiveThreadRootId}

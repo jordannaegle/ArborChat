@@ -1,0 +1,19 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+out
+
+# Development files
+.DS_Store
+.eslintcache
+*.log*
+
+# IDE
+.vscode
+.idea
+
+# Environment
+.env
+.env.local

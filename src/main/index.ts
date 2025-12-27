@@ -1,7 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
+import iconPng from '../../resources/icon.png?asset'
+import iconIco from '../../resources/icon.ico?asset'
 import {
   initDB,
   getConversations,
@@ -13,8 +14,21 @@ import {
   setApiKey,
   getApiKey,
   getSelectedModel,
-  setSelectedModel
+  setSelectedModel,
+  getOllamaServerUrl,
+  setOllamaServerUrl
 } from './db'
+import { getAllAvailableModels } from './models'
+import { OllamaProvider } from './providers/ollama'
+
+// Select the appropriate icon based on platform
+function getAppIcon(): string {
+  if (process.platform === 'win32') {
+    return iconIco
+  }
+  // Linux and macOS use PNG (macOS uses .icns from electron-builder for production)
+  return iconPng
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -23,7 +37,7 @@ function createWindow(): void {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon: getAppIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -66,7 +80,9 @@ app.whenReady().then(() => {
   ipcMain.handle('db:get-conversations', () => getConversations())
   ipcMain.handle('db:create-conversation', (_, title) => createConversation(title))
   ipcMain.handle('db:delete-conversation', (_, id) => deleteConversation(id))
-  ipcMain.handle('db:update-conversation-title', (_, { id, title }) => updateConversationTitle(id, title))
+  ipcMain.handle('db:update-conversation-title', (_, { id, title }) =>
+    updateConversationTitle(id, title)
+  )
   ipcMain.handle('db:get-messages', (_, conversationId) => getMessages(conversationId))
   ipcMain.handle('db:add-message', (_, { conversationId, role, content, parentId }) =>
     addMessage(conversationId, role, content, parentId)
@@ -75,6 +91,20 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:get-key', () => getApiKey())
   ipcMain.handle('settings:get-model', () => getSelectedModel())
   ipcMain.handle('settings:set-model', (_, model) => setSelectedModel(model))
+  ipcMain.handle('settings:get-ollama-url', () => getOllamaServerUrl())
+  ipcMain.handle('settings:set-ollama-url', (_, url) => setOllamaServerUrl(url))
+
+  // Model Discovery Handlers
+  ipcMain.handle('models:get-available', async (_, { apiKey }) => {
+    const ollamaUrl = getOllamaServerUrl()
+    return getAllAvailableModels(apiKey, ollamaUrl)
+  })
+
+  ipcMain.handle('ollama:check-connection', async () => {
+    const ollamaUrl = getOllamaServerUrl()
+    const ollamaProvider = new OllamaProvider(ollamaUrl)
+    return ollamaProvider.validateConnection()
+  })
 
   // AI Handlers
   ipcMain.on('ai:ask', (event, { apiKey, messages, model }) => {

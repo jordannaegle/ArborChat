@@ -6,7 +6,7 @@ const api = {
   getConversations: () => ipcRenderer.invoke('db:get-conversations'),
   createConversation: (title: string) => ipcRenderer.invoke('db:create-conversation', title),
   deleteConversation: (id: string) => ipcRenderer.invoke('db:delete-conversation', id),
-  updateConversationTitle: (id: string, title: string) => 
+  updateConversationTitle: (id: string, title: string) =>
     ipcRenderer.invoke('db:update-conversation-title', { id, title }),
   getMessages: (conversationId: string) => ipcRenderer.invoke('db:get-messages', conversationId),
   addMessage: (conversationId: string, role: string, content: string, parentId: string | null) =>
@@ -15,11 +15,19 @@ const api = {
   getApiKey: () => ipcRenderer.invoke('settings:get-key'),
   getSelectedModel: () => ipcRenderer.invoke('settings:get-model'),
   setSelectedModel: (model: string) => ipcRenderer.invoke('settings:set-model', model),
-  askAI: (apiKey: string, messages: any[], model: string) => 
+  getOllamaServerUrl: () => ipcRenderer.invoke('settings:get-ollama-url'),
+  setOllamaServerUrl: (url: string) => ipcRenderer.invoke('settings:set-ollama-url', url),
+  // Model Discovery
+  getAvailableModels: (apiKey?: string) => ipcRenderer.invoke('models:get-available', { apiKey }),
+  checkOllamaConnection: () => ipcRenderer.invoke('ollama:check-connection'),
+  // AI Communication
+  askAI: (apiKey: string, messages: any[], model: string) =>
     ipcRenderer.send('ai:ask', { apiKey, messages, model }),
-  onToken: (callback: (token: string) => void) => ipcRenderer.on('ai:token', (_, token) => callback(token)),
+  onToken: (callback: (token: string) => void) =>
+    ipcRenderer.on('ai:token', (_, token) => callback(token)),
   onDone: (callback: () => void) => ipcRenderer.on('ai:done', () => callback()),
-  onError: (callback: (err: string) => void) => ipcRenderer.on('ai:error', (_, err) => callback(err)),
+  onError: (callback: (err: string) => void) =>
+    ipcRenderer.on('ai:error', (_, err) => callback(err)),
   offAI: () => {
     ipcRenderer.removeAllListeners('ai:token')
     ipcRenderer.removeAllListeners('ai:done')

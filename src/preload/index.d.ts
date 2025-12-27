@@ -19,6 +19,10 @@ declare global {
       getApiKey: () => Promise<string | undefined>
       getSelectedModel: () => Promise<string>
       setSelectedModel: (model: string) => Promise<void>
+      getOllamaServerUrl: () => Promise<string>
+      setOllamaServerUrl: (url: string) => Promise<void>
+      getAvailableModels: (apiKey?: string) => Promise<import('../renderer/src/types').Model[]>
+      checkOllamaConnection: () => Promise<boolean>
       askAI: (apiKey: string, messages: any[], model: string) => void
       onToken: (callback: (token: string) => void) => void
       onDone: (callback: () => void) => void
@@ -27,4 +31,3 @@ declare global {
     }
   }
 }
-
