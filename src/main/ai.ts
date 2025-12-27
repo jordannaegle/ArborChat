@@ -1,14 +1,36 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { BrowserWindow } from 'electron'
 
-const MODEL_NAME = 'gemini-2.0-flash'
+const DEFAULT_MODEL = 'gemini-2.5-flash'
 
-export async function validateParams(apiKey: string): Promise<boolean> {
+// Helper for exponential backoff
+async function retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    retries: number = 3,
+    delay: number = 1000
+): Promise<T> {
+    try {
+        return await operation();
+    } catch (error: any) {
+        // Check for 429 Too Many Requests
+        // Google GenAI often returns 429 or 503 for rate limits/overload
+        const isRateLimit = error.message?.includes('429') || error.status === 429 || error.message?.includes('Too Many Requests');
+        
+        if (isRateLimit && retries > 0) {
+            console.warn(`[AI] Rate limit hit. Retrying in ${delay}ms... (Retries left: ${retries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return retryWithBackoff(operation, retries - 1, delay * 2);
+        }
+        throw error;
+    }
+}
+
+export async function validateParams(apiKey: string, modelName: string = DEFAULT_MODEL): Promise<boolean> {
   console.log('[AI] validateParams called')
-  console.log('[AI] Using model:', MODEL_NAME)
+  console.log('[AI] Using model:', modelName)
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+    const model = genAI.getGenerativeModel({ model: modelName }, { apiVersion: 'v1' });
     console.log('[AI] Sending test ping...')
     await model.generateContent('ping')
     console.log('[AI] Test ping successful!')
@@ -22,10 +44,11 @@ export async function validateParams(apiKey: string): Promise<boolean> {
 export async function streamResponse(
   window: BrowserWindow,
   apiKey: string,
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  modelName: string = DEFAULT_MODEL
 ): Promise<void> {
   console.log('[AI] streamResponse called')
-  console.log('[AI] Using model:', MODEL_NAME)
+  console.log('[AI] Using model:', modelName)
   console.log('[AI] Total messages received:', messages.length)
   
   try {
@@ -36,8 +59,8 @@ export async function streamResponse(
     
     // Note: gemini-pro doesn't support systemInstruction, so we skip it
     const model = genAI.getGenerativeModel({
-      model: MODEL_NAME
-    })
+      model: modelName
+    }, { apiVersion: 'v1' })
 
     // Gemini History Format
     // For gemini-pro, we'll prepend system message as a user message
@@ -67,7 +90,12 @@ export async function streamResponse(
     try {
       const chat = model.startChat({ history })
       console.log('[AI] Sending message stream...')
-      const result = await chat.sendMessageStream(lastMessage.parts[0].text)
+      console.log('[AI] Sending message stream...')
+      
+      const result = await retryWithBackoff(async () => {
+          return await chat.sendMessageStream(lastMessage.parts[0].text)
+      });
+      
       console.log('[AI] Stream started, awaiting chunks...')
       let chunkCount = 0
       for await (const chunk of result.stream) {

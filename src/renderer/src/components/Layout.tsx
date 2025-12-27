@@ -16,6 +16,7 @@ export interface LayoutProps {
     onSelectConversation: (id: string) => void
     onNewChat: () => void
     onDeleteConversation: (id: string) => void
+    onRenameConversation: (id: string, title: string) => void
     onSendMessage: (content: string) => void
     onThreadSelect: (messageId: string) => void
     onCloseThread: () => void
@@ -45,7 +46,7 @@ function WelcomeState() {
                 Welcome to ArborChat
             </h2>
             <p className="text-text-muted max-w-md leading-relaxed">
-                Select a conversation from the sidebar or create a new one to start chatting. 
+                Select a conversation from the sidebar or create a new one to start chatting.
                 You can branch into focused threads from any AI response.
             </p>
         </div>
@@ -62,6 +63,7 @@ export function Layout({
     onSelectConversation,
     onNewChat,
     onDeleteConversation,
+    onRenameConversation,
     onSendMessage,
     onThreadSelect,
     onCloseThread,
@@ -82,6 +84,7 @@ export function Layout({
                 onSelect={onSelectConversation}
                 onNewChat={onNewChat}
                 onDelete={onDeleteConversation}
+                onRename={onRenameConversation}
                 onSettings={onSettings}
             />
 
@@ -110,12 +113,12 @@ export function Layout({
                 {isThreadOpen && (
                     <>
                         {/* Clickable backdrop to close thread */}
-                        <div 
+                        <div
                             className="absolute inset-0 z-10 cursor-pointer"
                             onClick={onCloseThread}
                             aria-hidden="true"
                         />
-                        
+
                         {/* Thread panel */}
                         <div className="relative z-20">
                             <ThreadPanel
