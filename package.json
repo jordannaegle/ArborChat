@@ -1,7 +1,8 @@
 {
-  "name": "app",
+  "name": "arborchat",
+  "productName": "ArborChat",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "A threaded AI chat application",
   "main": "./out/main/index.js",
   "author": "example.com",
   "homepage": "https://electron-vite.org",
