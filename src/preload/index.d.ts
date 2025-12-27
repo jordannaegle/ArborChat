@@ -7,6 +7,7 @@ declare global {
       getConversations: () => Promise<import('../renderer/src/types').Conversation[]>
       createConversation: (title: string) => Promise<import('../renderer/src/types').Conversation>
       deleteConversation: (id: string) => Promise<void>
+      updateConversationTitle: (id: string, title: string) => Promise<void>
       getMessages: (conversationId: string) => Promise<import('../renderer/src/types').Message[]>
       addMessage: (
         conversationId: string,
@@ -16,7 +17,9 @@ declare global {
       ) => Promise<import('../renderer/src/types').Message>
       saveApiKey: (key: string) => Promise<void>
       getApiKey: () => Promise<string | undefined>
-      askAI: (apiKey: string, messages: any[]) => void
+      getSelectedModel: () => Promise<string>
+      setSelectedModel: (model: string) => Promise<void>
+      askAI: (apiKey: string, messages: any[], model: string) => void
       onToken: (callback: (token: string) => void) => void
       onDone: (callback: () => void) => void
       onError: (callback: (err: string) => void) => void
@@ -24,3 +27,4 @@ declare global {
     }
   }
 }
+

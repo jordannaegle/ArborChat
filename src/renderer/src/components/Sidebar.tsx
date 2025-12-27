@@ -1,4 +1,5 @@
 import { Plus, MessageSquare, Trash2, Settings, TreeDeciduous, MessagesSquare } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
 import { cn } from '../lib/utils'
 import { Conversation } from '../types'
 
@@ -8,6 +9,7 @@ interface SidebarProps {
     onSelect: (id: string) => void
     onNewChat: () => void
     onDelete: (id: string) => void
+    onRename: (id: string, title: string) => void
     onSettings: () => void
 }
 
@@ -41,30 +43,66 @@ function EmptyConversations() {
     )
 }
 
-function ConversationItem({ 
-    conversation, 
-    isActive, 
-    onSelect, 
-    onDelete 
-}: { 
+function ConversationItem({
+    conversation,
+    isActive,
+    onSelect,
+    onDelete,
+    onRename
+}: {
     conversation: Conversation
     isActive: boolean
     onSelect: () => void
     onDelete: () => void
+    onRename: (title: string) => void
 }) {
+    const [isEditing, setIsEditing] = useState(false)
+    const [editValue, setEditValue] = useState(conversation.title)
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus()
+            inputRef.current.select()
+        }
+    }, [isEditing])
+
+    const handleDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        setEditValue(conversation.title)
+        setIsEditing(true)
+    }
+
+    const handleSave = () => {
+        const trimmed = editValue.trim()
+        if (trimmed && trimmed !== conversation.title) {
+            onRename(trimmed)
+        }
+        setIsEditing(false)
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleSave()
+        } else if (e.key === 'Escape') {
+            setEditValue(conversation.title)
+            setIsEditing(false)
+        }
+    }
+
     return (
         <div
-            onClick={onSelect}
+            onClick={!isEditing ? onSelect : undefined}
             className={cn(
                 "group flex items-center gap-2 p-2.5 rounded-lg cursor-pointer",
                 "transition-all duration-150",
-                isActive 
-                    ? "bg-secondary text-text-normal shadow-sm" 
+                isActive
+                    ? "bg-secondary text-text-normal shadow-sm"
                     : "text-text-muted hover:text-text-normal hover:bg-secondary/40"
             )}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+            onKeyDown={(e) => !isEditing && e.key === 'Enter' && onSelect()}
             aria-selected={isActive}
         >
             {/* Icon */}
@@ -74,34 +112,53 @@ function ConversationItem({
             )}>
                 <MessageSquare size={14} />
             </div>
-            
-            {/* Title */}
-            <span className="flex-1 truncate text-sm font-medium">
-                {conversation.title || 'New conversation'}
-            </span>
-            
+
+            {/* Title - editable */}
+            {isEditing ? (
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={handleSave}
+                    onKeyDown={handleKeyDown}
+                    className="flex-1 bg-tertiary border border-primary rounded px-2 py-0.5 text-sm font-medium text-white focus:outline-none focus:ring-1 focus:ring-primary"
+                    onClick={(e) => e.stopPropagation()}
+                />
+            ) : (
+                <span
+                    className="flex-1 truncate text-sm font-medium"
+                    onDoubleClick={handleDoubleClick}
+                    title="Double-click to rename"
+                >
+                    {conversation.title || 'New conversation'}
+                </span>
+            )}
+
             {/* Delete button */}
-            <button
-                onClick={(e) => { 
-                    e.stopPropagation()
-                    onDelete()
-                }}
-                className={cn(
-                    "shrink-0 p-1.5 rounded-md",
-                    "text-text-muted hover:text-red-400 hover:bg-red-400/10",
-                    "opacity-0 group-hover:opacity-100 focus:opacity-100",
-                    "transition-all duration-150",
-                    "focus:outline-none focus:ring-2 focus:ring-red-400/30"
-                )}
-                aria-label={`Delete ${conversation.title || 'conversation'}`}
-            >
-                <Trash2 size={14} />
-            </button>
+            {!isEditing && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onDelete()
+                    }}
+                    className={cn(
+                        "shrink-0 p-1.5 rounded-md",
+                        "text-text-muted hover:text-red-400 hover:bg-red-400/10",
+                        "opacity-0 group-hover:opacity-100 focus:opacity-100",
+                        "transition-all duration-150",
+                        "focus:outline-none focus:ring-2 focus:ring-red-400/30"
+                    )}
+                    aria-label={`Delete ${conversation.title || 'conversation'}`}
+                >
+                    <Trash2 size={14} />
+                </button>
+            )}
         </div>
     )
 }
 
-export function Sidebar({ conversations, activeId, onSelect, onNewChat, onDelete, onSettings }: SidebarProps) {
+export function Sidebar({ conversations, activeId, onSelect, onNewChat, onDelete, onRename, onSettings }: SidebarProps) {
     return (
         <div className="flex flex-col w-72 bg-tertiary h-full border-r border-secondary/50 shrink-0">
             {/* Header with Logo */}
@@ -109,7 +166,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNewChat, onDelete
                 <div className="drag-region mb-4">
                     <Logo />
                 </div>
-                
+
                 <button
                     onClick={onNewChat}
                     className={cn(
@@ -139,6 +196,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNewChat, onDelete
                                 isActive={activeId === conv.id}
                                 onSelect={() => onSelect(conv.id)}
                                 onDelete={() => onDelete(conv.id)}
+                                onRename={(title) => onRename(conv.id, title)}
                             />
                         ))}
                     </div>

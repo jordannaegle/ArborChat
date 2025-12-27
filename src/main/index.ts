@@ -7,10 +7,13 @@ import {
   getConversations,
   createConversation,
   deleteConversation,
+  updateConversationTitle,
   getMessages,
   addMessage,
   setApiKey,
-  getApiKey
+  getApiKey,
+  getSelectedModel,
+  setSelectedModel
 } from './db'
 
 function createWindow(): void {
@@ -63,19 +66,22 @@ app.whenReady().then(() => {
   ipcMain.handle('db:get-conversations', () => getConversations())
   ipcMain.handle('db:create-conversation', (_, title) => createConversation(title))
   ipcMain.handle('db:delete-conversation', (_, id) => deleteConversation(id))
+  ipcMain.handle('db:update-conversation-title', (_, { id, title }) => updateConversationTitle(id, title))
   ipcMain.handle('db:get-messages', (_, conversationId) => getMessages(conversationId))
   ipcMain.handle('db:add-message', (_, { conversationId, role, content, parentId }) =>
     addMessage(conversationId, role, content, parentId)
   )
   ipcMain.handle('settings:save-key', (_, key) => setApiKey(key))
   ipcMain.handle('settings:get-key', () => getApiKey())
+  ipcMain.handle('settings:get-model', () => getSelectedModel())
+  ipcMain.handle('settings:set-model', (_, model) => setSelectedModel(model))
 
   // AI Handlers
-  ipcMain.on('ai:ask', (event, { apiKey, messages }) => {
+  ipcMain.on('ai:ask', (event, { apiKey, messages, model }) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
       import('./ai').then(({ streamResponse }) => {
-        streamResponse(win, apiKey, messages)
+        streamResponse(win, apiKey, messages, model)
       })
     }
   })

@@ -66,6 +66,11 @@ export function deleteConversation(id: string) {
     db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
 }
 
+export function updateConversationTitle(id: string, title: string) {
+    db.prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?')
+        .run(title, new Date().toISOString(), id);
+}
+
 // --- Messages ---
 export function addMessage(conversationId: string, role: 'user' | 'assistant' | 'system', content: string, parentId: string | null = null): Message {
     const id = randomUUID();
@@ -129,3 +134,13 @@ export function getApiKey(): string | undefined {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('openai_api_key') as { value: string } | undefined;
     return row?.value;
 }
+
+export function getSelectedModel(): string {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('selected_model') as { value: string } | undefined;
+    return row?.value ?? 'gemini-2.5-flash';
+}
+
+export function setSelectedModel(model: string): void {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('selected_model', model);
+}
+

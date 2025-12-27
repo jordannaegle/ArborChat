@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Layout } from './components/Layout'
+import { ModelSelector } from './components/ModelSelector'
 import { Conversation, Message } from './types'
 import { Loader2 } from 'lucide-react'
 
@@ -60,7 +61,17 @@ function ApiKeyPrompt({ onSave }: { onSave: (k: string) => void }) {
   )
 }
 
-function SettingsModal({ onClose, onSave }: { onClose: () => void, onSave: (k: string) => void }) {
+function SettingsModal({
+  onClose,
+  onSave,
+  selectedModel,
+  onModelChange
+}: {
+  onClose: () => void
+  onSave: (k: string) => void
+  selectedModel: string
+  onModelChange: (model: string) => void
+}) {
   const [key, setKey] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -73,14 +84,30 @@ function SettingsModal({ onClose, onSave }: { onClose: () => void, onSave: (k: s
     onClose()
   }
 
+  const handleModelChange = async (modelId: string) => {
+    await window.api.setSelectedModel(modelId)
+    onModelChange(modelId)
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md space-y-4 border border-tertiary" onClick={e => e.stopPropagation()}>
+      <div className="bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md space-y-6 border border-tertiary" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold text-white">Settings</h2>
           <button onClick={onClose} className="text-text-muted hover:text-white">✕</button>
         </div>
 
+        {/* Model Selection */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-white">AI Model</h3>
+          <p className="text-xs text-text-muted">Choose which Gemini model to use for chat.</p>
+          <ModelSelector
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+          />
+        </div>
+
+        {/* API Key */}
         <div className="space-y-2">
           <h3 className="text-sm font-medium text-white">Update API Key</h3>
           <p className="text-xs text-text-muted">Enter a new key to overwrite the current one.</p>
@@ -121,6 +148,7 @@ function App() {
   const [apiKey, setApiKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash')
 
   // Data
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -137,8 +165,12 @@ function App() {
 
   // Init
   useEffect(() => {
-    window.api.getApiKey().then(k => {
-      if (k) setApiKey(k)
+    Promise.all([
+      window.api.getApiKey(),
+      window.api.getSelectedModel()
+    ]).then(([key, model]) => {
+      if (key) setApiKey(key)
+      if (model) setSelectedModel(model)
       setLoading(false)
     })
   }, [])
@@ -205,6 +237,16 @@ function App() {
     // Save User Message
     const userMsg = await window.api.addMessage(activeId, 'user', content, parentId)
     setAllMessages(prev => [...prev, userMsg])
+
+    // Auto-name conversation from first user message (if still "New Chat")
+    const currentConv = conversations.find(c => c.id === activeId)
+    if (currentConv && currentConv.title === 'New Chat' && !parentId) {
+      const autoTitle = content.length > 40 ? content.slice(0, 40) + '...' : content
+      await window.api.updateConversationTitle(activeId, autoTitle)
+      setConversations(prev => prev.map(c =>
+        c.id === activeId ? { ...c, title: autoTitle } : c
+      ))
+    }
 
     // Build Context (Isolated Threading Logic)
     const system: { role: 'system', content: string } = { role: 'system', content: 'You are ArborChat, an intelligent assistant.' }
@@ -275,7 +317,7 @@ function App() {
       // For now, just show it.
     })
 
-    window.api.askAI(apiKey, context)
+    window.api.askAI(apiKey, context, selectedModel)
   }
 
   if (loading) return <div className="h-screen bg-background flex items-center justify-center text-white"><Loader2 className="animate-spin" /></div>
@@ -301,12 +343,25 @@ function App() {
           refreshConversations()
           if (activeId === id) setActiveId(null)
         }}
+        onRenameConversation={async (id, title) => {
+          await window.api.updateConversationTitle(id, title)
+          setConversations(prev => prev.map(c =>
+            c.id === id ? { ...c, title } : c
+          ))
+        }}
         onSendMessage={handleSendMessage}
         onThreadSelect={setActiveThreadRootId}
         onCloseThread={() => setActiveThreadRootId(null)}
         onSettings={() => setIsSettingsOpen(true)}
       />
-      {isSettingsOpen && <SettingsModal onClose={() => setIsSettingsOpen(false)} onSave={setApiKey} />}
+      {isSettingsOpen && (
+        <SettingsModal
+          onClose={() => setIsSettingsOpen(false)}
+          onSave={setApiKey}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+        />
+      )}
     </>
   )
 }
