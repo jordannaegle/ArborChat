@@ -1,6 +1,7 @@
 import { AIModel } from './providers/types'
 import { GeminiProvider } from './providers/gemini'
 import { OllamaProvider } from './providers/ollama'
+import { AnthropicProvider } from './providers/anthropic'
 
 /**
  * Model discovery and management service
@@ -16,6 +17,14 @@ const CACHE_DURATION = 30000 // 30 seconds
 export async function getGeminiModels(apiKey?: string): Promise<AIModel[]> {
   const geminiProvider = new GeminiProvider()
   return geminiProvider.getAvailableModels(apiKey)
+}
+
+/**
+ * Get all Anthropic Claude models (static list)
+ */
+export async function getAnthropicModels(): Promise<AIModel[]> {
+  const anthropicProvider = new AnthropicProvider()
+  return anthropicProvider.getAvailableModels()
 }
 
 /**
@@ -52,15 +61,18 @@ export async function getAllAvailableModels(
 ): Promise<AIModel[]> {
   console.log('[Models] Fetching all available models')
 
-  const [geminiModels, ollamaModels] = await Promise.all([
+  const [anthropicModels, geminiModels, ollamaModels] = await Promise.all([
+    getAnthropicModels(),
     getGeminiModels(apiKey),
     getOllamaModels(ollamaUrl)
   ])
 
+  console.log('[Models] Found', anthropicModels.length, 'Anthropic models')
   console.log('[Models] Found', geminiModels.length, 'Gemini models')
   console.log('[Models] Found', ollamaModels.length, 'Ollama models')
 
-  return [...geminiModels, ...ollamaModels]
+  // Anthropic first to prioritize in model selector
+  return [...anthropicModels, ...geminiModels, ...ollamaModels]
 }
 
 /**

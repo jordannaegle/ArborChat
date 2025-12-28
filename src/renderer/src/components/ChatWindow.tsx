@@ -1,8 +1,49 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, MessageCircle, Sparkles, User, Loader2 } from 'lucide-react'
+import { Send, MessageCircle, Sparkles, User, Loader2, X, Bot } from 'lucide-react'
 import { Message } from '../types'
 import { cn } from '../lib/utils'
 import { ModelSelector } from './ModelSelector'
+import { ToolApprovalCard, ToolResultCard } from './mcp'
+import { SlashCommandMenu } from './chat'
+import { useSlashCommands } from '../hooks'
+import type { PendingToolCall, ToolExecution } from '../hooks'
+
+// Tool risk levels (mirrored from main process for renderer use)
+const TOOL_RISK_LEVELS: Record<string, 'safe' | 'moderate' | 'dangerous'> = {
+  // Safe - read-only operations
+  read_file: 'safe',
+  read_multiple_files: 'safe',
+  list_directory: 'safe',
+  get_file_info: 'safe',
+  list_sessions: 'safe',
+  list_processes: 'safe',
+  list_searches: 'safe',
+  get_config: 'safe',
+  read_process_output: 'safe',
+  get_usage_stats: 'safe',
+  get_recent_tool_calls: 'safe',
+  get_more_search_results: 'safe',
+  get_prompts: 'safe',
+  give_feedback_to_desktop_commander: 'safe',
+  // Moderate - write operations
+  write_file: 'moderate',
+  write_pdf: 'moderate',
+  create_directory: 'moderate',
+  start_search: 'moderate',
+  start_process: 'moderate',
+  interact_with_process: 'moderate',
+  edit_block: 'moderate',
+  stop_search: 'moderate',
+  // Dangerous - system-wide effects
+  move_file: 'dangerous',
+  force_terminate: 'dangerous',
+  kill_process: 'dangerous',
+  set_config_value: 'dangerous'
+}
+
+function getToolRiskLevel(toolName: string): 'safe' | 'moderate' | 'dangerous' {
+  return TOOL_RISK_LEVELS[toolName] || 'moderate'
+}
 
 interface ChatWindowProps {
   messages: Message[]
@@ -14,6 +55,19 @@ interface ChatWindowProps {
   threadTitle?: string
   selectedModel: string
   onModelChange: (modelId: string) => void
+  // MCP Tool Props
+  pendingToolCall?: PendingToolCall | null
+  toolExecutions?: ToolExecution[]
+  onToolApprove?: (id: string, modifiedArgs?: Record<string, unknown>) => void
+  onToolAlwaysApprove?: (id: string, toolName: string, modifiedArgs?: Record<string, unknown>) => void
+  onToolReject?: (id: string) => void
+  // Persona Props (Phase 4)
+  activePersonaId?: string | null
+  activePersonaName?: string | null
+  onActivatePersona?: (id: string | null) => void
+  onShowPersonaList?: () => void
+  // Agent Props
+  onAgentLaunch?: (messageContent: string) => void
 }
 
 function TypingIndicator() {
@@ -29,11 +83,13 @@ function TypingIndicator() {
 function MessageBubble({
   message,
   onThreadSelect,
+  onAgentLaunch,
   showThreadButton = true,
   isStreaming = false
 }: {
   message: Message
   onThreadSelect: (id: string) => void
+  onAgentLaunch?: (messageContent: string) => void
   showThreadButton?: boolean
   isStreaming?: boolean
 }) {
@@ -100,20 +156,38 @@ function MessageBubble({
 
         {/* Thread button - only on assistant messages */}
         {isAssistant && showThreadButton && !isStreaming && (
-          <button
-            onClick={() => onThreadSelect(message.id)}
-            className={cn(
-              'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs',
-              'text-text-muted hover:text-primary hover:bg-primary/10',
-              'transition-all duration-150',
-              'opacity-0 group-hover:opacity-100 focus:opacity-100',
-              'focus:outline-none focus:ring-2 focus:ring-primary/30'
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            <button
+              onClick={() => onThreadSelect(message.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs',
+                'text-text-muted hover:text-primary hover:bg-primary/10',
+                'transition-all duration-150',
+                'focus:outline-none focus:ring-2 focus:ring-primary/30'
+              )}
+              aria-label="Start thread on this message"
+            >
+              <MessageCircle size={14} />
+              <span>Thread</span>
+            </button>
+            
+            {/* Agent Launch Button */}
+            {onAgentLaunch && (
+              <button
+                onClick={() => onAgentLaunch(message.content)}
+                className={cn(
+                  'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs',
+                  'text-text-muted hover:text-violet-400 hover:bg-violet-500/10',
+                  'transition-all duration-150',
+                  'focus:outline-none focus:ring-2 focus:ring-violet-500/30'
+                )}
+                aria-label="Launch agent based on this message"
+              >
+                <Bot size={14} />
+                <span>Agent</span>
+              </button>
             )}
-            aria-label="Start thread on this message"
-          >
-            <MessageCircle size={14} />
-            <span>Thread</span>
-          </button>
+          </div>
         )}
       </div>
     </div>
@@ -135,6 +209,39 @@ function EmptyState() {
   )
 }
 
+/**
+ * Active Persona Indicator
+ * Shows when a persona is active above the input
+ */
+function ActivePersonaIndicator({ 
+  personaName, 
+  onDeactivate 
+}: { 
+  personaName: string
+  onDeactivate: () => void 
+}) {
+  return (
+    <div className={cn(
+      "absolute -top-9 left-1/2 -translate-x-1/2",
+      "flex items-center gap-2 px-3 py-1.5 rounded-full",
+      "bg-primary/10 border border-primary/20",
+      "animate-in fade-in slide-in-from-bottom-2 duration-200"
+    )}>
+      <Sparkles size={12} className="text-primary" />
+      <span className="text-xs text-primary font-medium">
+        {personaName}
+      </span>
+      <button
+        onClick={onDeactivate}
+        className="p-0.5 rounded-full hover:bg-primary/20 transition-colors"
+        aria-label="Deactivate persona"
+      >
+        <X size={12} className="text-primary" />
+      </button>
+    </div>
+  )
+}
+
 export function ChatWindow({
   messages,
   onSendMessage,
@@ -144,11 +251,37 @@ export function ChatWindow({
   isThread = false,
   threadTitle = 'Chat',
   selectedModel,
-  onModelChange
+  onModelChange,
+  pendingToolCall,
+  toolExecutions,
+  onToolApprove,
+  onToolAlwaysApprove,
+  onToolReject,
+  // Persona props
+  activePersonaId,
+  activePersonaName,
+  onActivatePersona,
+  onShowPersonaList,
+  // Agent props
+  onAgentLaunch
 }: ChatWindowProps) {
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Slash command integration
+  const {
+    state: slashState,
+    handleInputChange: handleSlashInput,
+    handleNavigate,
+    setSelectedIndex,
+    executeSelected,
+    executeCommand,
+    reset: resetSlash
+  } = useSlashCommands({
+    onActivatePersona: onActivatePersona || (() => {}),
+    onShowPersonaList: onShowPersonaList || (() => {})
+  })
 
   // Auto-resize textarea based on content
   const adjustTextareaHeight = useCallback(() => {
@@ -161,7 +294,7 @@ export function ChatWindow({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`
   }, [])
 
-  // Auto-scroll on new messages
+  // Auto-scroll on new messages or pending tool call
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -169,7 +302,7 @@ export function ChatWindow({
         behavior: 'smooth'
       })
     }
-  }, [messages])
+  }, [messages, pendingToolCall])
 
   // Focus input on mount
   useEffect(() => {
@@ -181,18 +314,79 @@ export function ChatWindow({
     adjustTextareaHeight()
   }, [input, adjustTextareaHeight])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Handle input change with slash command detection
+  const handleInputChange = (value: string) => {
+    setInput(value)
+    handleSlashInput(value)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || pending) return
+
+    // Check if it's a slash command first
+    if (input.startsWith('/')) {
+      const handled = await executeCommand(input)
+      if (handled) {
+        setInput('')
+        resetSlash()
+        return
+      }
+    }
+
+    // Normal message
     onSendMessage(input)
     setInput('')
+    resetSlash()
     // Reset textarea height after sending
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
+    // Slash command navigation
+    if (slashState.isActive) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        handleNavigate('up')
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        handleNavigate('down')
+        return
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        // Tab to autocomplete the selected command
+        const match = slashState.matches[slashState.selectedIndex]
+        if (match && match.command.syntax !== '/persona <n>') {
+          setInput(match.command.syntax)
+          handleSlashInput(match.command.syntax)
+        }
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        const handled = await executeSelected()
+        if (handled) {
+          setInput('')
+          resetSlash()
+        } else {
+          // If not handled (e.g., generic /persona hint), try to submit as command
+          handleSubmit(e)
+        }
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        resetSlash()
+        return
+      }
+    }
+
+    // Normal enter handling
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit(e)
@@ -233,6 +427,7 @@ export function ChatWindow({
                 key={msg.id}
                 message={msg}
                 onThreadSelect={onThreadSelect}
+                onAgentLaunch={onAgentLaunch}
                 showThreadButton={!isThread}
                 isStreaming={isLastMessageStreaming && index === messages.length - 1}
               />
@@ -252,6 +447,34 @@ export function ChatWindow({
                 </div>
               </div>
             )}
+
+            {/* Tool Approval Card - show when AI requests a tool */}
+            {pendingToolCall && onToolApprove && onToolReject && (
+              <div className="my-4">
+                <ToolApprovalCard
+                  id={pendingToolCall.id}
+                  toolName={pendingToolCall.tool}
+                  args={pendingToolCall.args}
+                  explanation={pendingToolCall.explanation}
+                  riskLevel={getToolRiskLevel(pendingToolCall.tool)}
+                  onApprove={onToolApprove}
+                  onAlwaysApprove={onToolAlwaysApprove}
+                  onReject={onToolReject}
+                />
+              </div>
+            )}
+
+            {/* Tool Results - show completed tool executions */}
+            {toolExecutions && toolExecutions.filter(e => e.status === 'completed' || e.status === 'error').map((exec) => (
+              <ToolResultCard
+                key={exec.id}
+                toolName={exec.toolName}
+                result={exec.result}
+                error={exec.error}
+                duration={exec.duration}
+                autoApproved={exec.autoApproved}
+              />
+            ))}
           </div>
         ) : (
           <EmptyState />
@@ -269,6 +492,29 @@ export function ChatWindow({
           onSubmit={handleSubmit}
           className="relative max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto"
         >
+          {/* Slash Command Menu */}
+          <SlashCommandMenu
+            state={slashState}
+            onSelect={(index) => {
+              setSelectedIndex(index)
+              executeSelected().then(handled => {
+                if (handled) {
+                  setInput('')
+                  resetSlash()
+                }
+              })
+            }}
+            onClose={resetSlash}
+          />
+
+          {/* Active Persona Indicator */}
+          {activePersonaId && activePersonaName && onActivatePersona && (
+            <ActivePersonaIndicator 
+              personaName={activePersonaName}
+              onDeactivate={() => onActivatePersona(null)}
+            />
+          )}
+
           <div
             className={cn(
               'relative rounded-xl overflow-hidden',
@@ -279,9 +525,9 @@ export function ChatWindow({
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={pending ? 'Waiting for response...' : 'Send a message...'}
+              placeholder={pending ? 'Waiting for response...' : 'Send a message... (Type / for commands)'}
               disabled={pending}
               rows={1}
               className={cn(
@@ -315,8 +561,12 @@ export function ChatWindow({
 
           {/* Keyboard hint */}
           <div className="flex justify-between mt-1.5">
-            <span className="text-[10px] text-text-muted/50">Shift+Enter for new line</span>
-            <span className="text-[10px] text-text-muted/50">Enter to send</span>
+            <span className="text-[10px] text-text-muted/50">
+              {slashState.isActive ? 'Tab to complete • Enter to select' : 'Type / for commands'}
+            </span>
+            <span className="text-[10px] text-text-muted/50">
+              {slashState.isActive ? 'Esc to cancel' : 'Shift+Enter for new line'}
+            </span>
           </div>
 
           {/* Model Selector */}

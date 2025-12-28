@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { AIProvider } from './base'
-import { AIModel, StreamParams, ChatMessage } from './types'
+import { AIModel, StreamParams } from './types'
 
 const DEFAULT_MODEL = 'gemini-2.5-flash'
 
@@ -128,15 +128,20 @@ export class GeminiProvider implements AIProvider {
       const systemMessage = messages.find((m) => m.role === 'system')
 
       console.log('[Gemini] System instruction:', systemMessage ? 'Present' : 'None')
+      if (systemMessage) {
+        console.log('[Gemini] System instruction length:', systemMessage.content.length)
+      }
 
+      // Create model with system instruction if provided
       const model = genAI.getGenerativeModel(
         {
-          model: modelId
+          model: modelId,
+          systemInstruction: systemMessage?.content
         },
-        { apiVersion: 'v1' }
+        { apiVersion: 'v1beta' }
       )
 
-      // Convert to Gemini format
+      // Convert to Gemini format (exclude system messages)
       let history = messages
         .filter((m) => m.role !== 'system')
         .map((m) => ({
@@ -176,14 +181,25 @@ export class GeminiProvider implements AIProvider {
 
         console.log('[Gemini] Stream started, awaiting chunks...')
         let chunkCount = 0
+        let fullResponse = ''
         for await (const chunk of result.stream) {
           const text = chunk.text()
           if (text) {
             chunkCount++
+            fullResponse += text
             window.webContents.send('ai:token', text)
           }
         }
         console.log('[Gemini] Stream complete. Total chunks:', chunkCount)
+        console.log('[Gemini] Full response preview:', fullResponse.substring(0, 500))
+        
+        // Check for tool_use pattern
+        if (fullResponse.includes('```tool_use')) {
+          console.log('[Gemini] ✅ Tool use block detected in response!')
+        } else {
+          console.log('[Gemini] ❌ No tool_use block in response')
+        }
+        
         window.webContents.send('ai:done')
       } catch (streamErr) {
         // If streaming is not supported, fall back to simple generateContent

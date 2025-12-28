@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import iconPng from '../../resources/icon.png?asset'
@@ -20,6 +20,9 @@ import {
 } from './db'
 import { getAllAvailableModels } from './models'
 import { OllamaProvider } from './providers/ollama'
+import { setupMCPHandlers, mcpManager } from './mcp'
+import { setupPersonaHandlers } from './personas'
+import { credentialManager, ProviderId } from './credentials'
 
 // Select the appropriate icon based on platform
 function getAppIcon(): string {
@@ -101,6 +104,15 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:get-ollama-url', () => getOllamaServerUrl())
   ipcMain.handle('settings:set-ollama-url', (_, url) => setOllamaServerUrl(url))
 
+  // Dialog Handlers
+  ipcMain.handle('dialog:select-directory', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select Working Directory'
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+
   // Model Discovery Handlers
   ipcMain.handle('models:get-available', async (_, { apiKey }) => {
     const ollamaUrl = getOllamaServerUrl()
@@ -111,6 +123,45 @@ app.whenReady().then(() => {
     const ollamaUrl = getOllamaServerUrl()
     const ollamaProvider = new OllamaProvider(ollamaUrl)
     return ollamaProvider.validateConnection()
+  })
+
+  // Credential Management Handlers
+  ipcMain.handle('credentials:get-configured', async () => {
+    return credentialManager.getConfiguredProviders()
+  })
+
+  ipcMain.handle('credentials:has-key', async (_, providerId: string) => {
+    return credentialManager.hasApiKey(providerId as ProviderId)
+  })
+
+  ipcMain.handle('credentials:get-key', async (_, providerId: string) => {
+    return credentialManager.getApiKey(providerId as ProviderId)
+  })
+
+  ipcMain.handle('credentials:set-key', async (_, { providerId, apiKey }) => {
+    await credentialManager.setApiKey(providerId as ProviderId, apiKey)
+    return { success: true }
+  })
+
+  ipcMain.handle('credentials:delete-key', async (_, providerId: string) => {
+    await credentialManager.deleteApiKey(providerId as ProviderId)
+    return { success: true }
+  })
+
+  ipcMain.handle('credentials:validate-key', async (_, { providerId, apiKey }) => {
+    // Import providers dynamically to avoid circular dependencies
+    switch (providerId) {
+      case 'gemini': {
+        const { GeminiProvider } = await import('./providers/gemini')
+        return new GeminiProvider().validateConnection(apiKey)
+      }
+      case 'anthropic': {
+        const { AnthropicProvider } = await import('./providers/anthropic')
+        return new AnthropicProvider().validateConnection(apiKey)
+      }
+      default:
+        return false
+    }
   })
 
   // AI Handlers
@@ -124,6 +175,12 @@ app.whenReady().then(() => {
   })
 
   initDB()
+
+  // Setup MCP handlers for tool execution
+  setupMCPHandlers()
+
+  // Setup Persona handlers for AI personalities
+  setupPersonaHandlers()
 
   createWindow()
 
@@ -141,6 +198,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// Cleanup MCP connections before quitting
+app.on('before-quit', async () => {
+  console.log('[App] Cleaning up MCP connections...')
+  await mcpManager.disconnectAll()
 })
 
 // In this file you can include the rest of your app's specific main process
