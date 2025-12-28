@@ -163,7 +163,8 @@ interface MCPAPI {
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
-    explanation?: string
+    explanation?: string,
+    skipApproval?: boolean
   ) => Promise<MCPToolResult>
   approve: (id: string, modifiedArgs?: Record<string, unknown>) => Promise<MCPToolResult>
   alwaysApprove: (

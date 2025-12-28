@@ -10,6 +10,7 @@ import { PersonaMetadata } from './types/persona'
 import type { AgentToolPermission, AgentMessage } from './types/agent'
 import { Loader2 } from 'lucide-react'
 import { useToolChat } from './hooks'
+import { parseAIError } from './lib/errorParser'
 
 function ApiKeyPrompt({ onSave }: { onSave: (k: string) => void }) {
   const [key, setKey] = useState('')
@@ -411,11 +412,14 @@ function AppContent({ apiKey }: { apiKey: string }) {
         cleanup()
         setPending(false)
 
+        // Parse error for user-friendly message
+        const parsedError = parseAIError(err, selectedModel)
+
         const errorMsg = {
           id: 'error-' + Date.now(),
           conversation_id: activeId!,
           role: 'assistant' as const,
-          content: `⚠️ **Error**: ${err}. Please check your API Key quota.`,
+          content: parsedError.userMessage,
           parent_message_id: parentId,
           created_at: new Date().toISOString()
         }

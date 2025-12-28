@@ -136,12 +136,14 @@ const mcpApi = {
   getSystemPrompt: () => ipcRenderer.invoke('mcp:get-system-prompt') as Promise<string>,
 
   // Request tool execution (may require approval)
+  // skipApproval: if true, bypasses approval queue (used when frontend already showed approval card)
   requestTool: (
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
-    explanation?: string
-  ) => ipcRenderer.invoke('mcp:request-tool', { serverName, toolName, args, explanation }),
+    explanation?: string,
+    skipApproval?: boolean
+  ) => ipcRenderer.invoke('mcp:request-tool', { serverName, toolName, args, explanation, skipApproval }),
 
   // Approve a pending tool call
   approve: (id: string, modifiedArgs?: Record<string, unknown>) =>

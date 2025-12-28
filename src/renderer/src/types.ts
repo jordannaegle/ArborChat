@@ -121,20 +121,6 @@ export const GEMINI_MODELS: Model[] = [
     description: 'Advanced reasoning',
     provider: 'gemini',
     isLocal: false
-  },
-  {
-    id: 'gemini-3.0-flash',
-    name: 'Gemini 3.0 Flash',
-    description: 'Next-gen speed & reasoning',
-    provider: 'gemini',
-    isLocal: false
-  },
-  {
-    id: 'gemini-3.0-pro',
-    name: 'Gemini 3.0 Pro',
-    description: 'Most capable, frontier intelligence',
-    provider: 'gemini',
-    isLocal: false
   }
 ]
 

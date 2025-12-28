@@ -77,9 +77,10 @@ export function setupMCPHandlers(): void {
         toolName: string
         args: Record<string, unknown>
         explanation?: string
+        skipApproval?: boolean // Skip approval if frontend already approved
       }
     ) => {
-      const { serverName, toolName, args, explanation } = request
+      const { serverName, toolName, args, explanation, skipApproval } = request
       const id = randomUUID()
       const config = mcpManager.getConfig()
 
@@ -90,6 +91,33 @@ export function setupMCPHandlers(): void {
           success: false,
           error: `Tool '${toolName}' is blocked by configuration`,
           blocked: true
+        }
+      }
+
+      // If skipApproval is set, the frontend already showed approval card
+      // Execute immediately without re-queuing for approval
+      if (skipApproval) {
+        console.log(`[MCP IPC] Executing pre-approved ${toolName} (frontend approved)`)
+        const startTime = Date.now()
+
+        try {
+          const result = await mcpManager.callTool(serverName, toolName, args)
+          return {
+            id,
+            success: true,
+            approved: true,
+            autoApproved: false,
+            result,
+            duration: Date.now() - startTime
+          }
+        } catch (error) {
+          return {
+            id,
+            success: false,
+            approved: true,
+            autoApproved: false,
+            error: String(error)
+          }
         }
       }
 

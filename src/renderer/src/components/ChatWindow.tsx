@@ -4,7 +4,7 @@ import { Message } from '../types'
 import { cn } from '../lib/utils'
 import { ModelSelector } from './ModelSelector'
 import { ToolApprovalCard, ToolResultCard } from './mcp'
-import { SlashCommandMenu } from './chat'
+import { SlashCommandMenu, MarkdownRenderer } from './chat'
 import { useSlashCommands } from '../hooks'
 import type { PendingToolCall, ToolExecution } from '../hooks'
 
@@ -150,7 +150,11 @@ function MessageBubble({
               : 'bg-secondary text-text-normal rounded-tl-sm border border-tertiary'
           )}
         >
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          {isUser ? (
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          ) : (
+            <MarkdownRenderer content={message.content} />
+          )}
 
           {/* Streaming indicator */}
           {isStreaming && isAssistant && (
@@ -283,8 +287,8 @@ export function ChatWindow({
     executeCommand,
     reset: resetSlash
   } = useSlashCommands({
-    onActivatePersona: onActivatePersona || (() => {}),
-    onShowPersonaList: onShowPersonaList || (() => {})
+    onActivatePersona: onActivatePersona || (() => { }),
+    onShowPersonaList: onShowPersonaList || (() => { })
   })
 
   // Auto-resize textarea based on content

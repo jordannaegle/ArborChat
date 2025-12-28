@@ -8,3 +8,5 @@
 
 export { SlashCommandMenu } from './SlashCommandMenu'
 export { PersonaListModal } from './PersonaListModal'
+export { CodeBlock } from './CodeBlock'
+export { MarkdownRenderer } from './MarkdownRenderer'

@@ -35,20 +35,6 @@ const GEMINI_MODELS: AIModel[] = [
     description: 'Advanced reasoning',
     provider: 'gemini',
     isLocal: false
-  },
-  {
-    id: 'gemini-3.0-flash',
-    name: 'Gemini 3.0 Flash',
-    description: 'Next-gen speed & reasoning',
-    provider: 'gemini',
-    isLocal: false
-  },
-  {
-    id: 'gemini-3.0-pro',
-    name: 'Gemini 3.0 Pro',
-    description: 'Most capable, frontier intelligence',
-    provider: 'gemini',
-    isLocal: false
   }
 ]
 
@@ -96,7 +82,7 @@ export class GeminiProvider implements AIProvider {
     console.log('[Gemini] validateConnection called')
     try {
       const genAI = new GoogleGenerativeAI(apiKey)
-      const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL }, { apiVersion: 'v1' })
+      const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL }, { apiVersion: 'v1beta' })
       console.log('[Gemini] Sending test ping...')
       await model.generateContent('ping')
       console.log('[Gemini] Test ping successful!')

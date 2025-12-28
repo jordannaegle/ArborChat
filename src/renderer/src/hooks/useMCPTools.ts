@@ -55,11 +55,13 @@ export function useMCPTools(): UseMCPToolsResult {
   }, [])
 
   // Execute a tool and track its status
+  // skipApproval defaults to true because this is called after frontend approval
   const executeTool = useCallback(
     async (
       toolName: string,
       args: Record<string, unknown>,
-      explanation?: string
+      explanation?: string,
+      skipApproval: boolean = true
     ): Promise<MCPToolResult> => {
       if (!connected) {
         return {
@@ -86,7 +88,8 @@ export function useMCPTools(): UseMCPToolsResult {
       setIsProcessingTool(true)
 
       try {
-        const result = await requestTool(toolName, args, explanation)
+        // Pass skipApproval to prevent backend from re-queuing for approval
+        const result = await requestTool(toolName, args, explanation, skipApproval)
 
         // Update execution status
         setToolExecutions((prev) =>
