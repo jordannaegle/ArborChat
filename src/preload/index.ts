@@ -136,6 +136,68 @@ interface GitDiffInfo {
   totalDeletions: number
 }
 
+// Notebook API types for saved chat content
+interface Notebook {
+  id: string
+  name: string
+  description: string | null
+  emoji: string
+  color: string
+  created_at: string
+  updated_at: string
+  entry_count: number
+}
+
+interface NotebookEntry {
+  id: string
+  notebook_id: string
+  content: string
+  source_message_id: string | null
+  source_conversation_id: string | null
+  source_role: 'user' | 'assistant' | null
+  title: string | null
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+interface CreateNotebookInput {
+  name: string
+  description?: string
+  emoji?: string
+  color?: string
+}
+
+interface UpdateNotebookInput {
+  name?: string
+  description?: string
+  emoji?: string
+  color?: string
+}
+
+interface CreateEntryInput {
+  notebook_id: string
+  content: string
+  source_message_id?: string
+  source_conversation_id?: string
+  source_role?: 'user' | 'assistant'
+  title?: string
+  tags?: string[]
+}
+
+interface UpdateEntryInput {
+  content?: string
+  title?: string
+  tags?: string[]
+}
+
+interface NotebookSearchResult {
+  entry: NotebookEntry
+  notebook: Notebook
+  snippet: string
+  rank: number
+}
+
 // Git API for repository detection and information
 const gitApi = {
   // Get comprehensive git repo info for a directory
@@ -326,9 +388,121 @@ const mcpApi = {
       }>
   },
 
-  // SSH-specific API
+  // SSH-specific API (Multi-connection support)
   ssh: {
     isConfigured: () => ipcRenderer.invoke('mcp:ssh:is-configured') as Promise<boolean>,
+    
+    // Connection management
+    listConnections: () => 
+      ipcRenderer.invoke('mcp:ssh:list-connections') as Promise<Array<{
+        id: string
+        name: string
+        host: string
+        port: number
+        username: string
+        authType: 'password' | 'key'
+        password?: string
+        keyPath?: string
+        createdAt: string
+        enabled: boolean
+      }>>,
+    
+    getConnection: (id: string) =>
+      ipcRenderer.invoke('mcp:ssh:get-connection', id) as Promise<{
+        id: string
+        name: string
+        host: string
+        port: number
+        username: string
+        authType: 'password' | 'key'
+        password?: string
+        keyPath?: string
+        createdAt: string
+        enabled: boolean
+      } | null>,
+    
+    addConnection: (connection: {
+      name: string
+      host: string
+      port: number
+      username: string
+      authType: 'password' | 'key'
+      password?: string
+      keyPath?: string
+      enabled: boolean
+    }) =>
+      ipcRenderer.invoke('mcp:ssh:add-connection', connection) as Promise<{
+        success: boolean
+        connection?: {
+          id: string
+          name: string
+          host: string
+          port: number
+          username: string
+          authType: 'password' | 'key'
+          createdAt: string
+          enabled: boolean
+        }
+        error?: string
+      }>,
+    
+    updateConnection: (id: string, updates: {
+      name?: string
+      host?: string
+      port?: number
+      username?: string
+      authType?: 'password' | 'key'
+      password?: string
+      keyPath?: string
+      enabled?: boolean
+    }) =>
+      ipcRenderer.invoke('mcp:ssh:update-connection', { id, updates }) as Promise<{
+        success: boolean
+        connection?: {
+          id: string
+          name: string
+          host: string
+          port: number
+          username: string
+          authType: 'password' | 'key'
+          createdAt: string
+          enabled: boolean
+        }
+        error?: string
+      }>,
+    
+    deleteConnection: (id: string) =>
+      ipcRenderer.invoke('mcp:ssh:delete-connection', id) as Promise<{
+        success: boolean
+        error?: string
+      }>,
+    
+    connect: (id: string) =>
+      ipcRenderer.invoke('mcp:ssh:connect', id) as Promise<{
+        success: boolean
+        error?: string
+      }>,
+    
+    disconnectConnection: (id: string) =>
+      ipcRenderer.invoke('mcp:ssh:disconnect-connection', id) as Promise<{
+        success: boolean
+        error?: string
+      }>,
+    
+    // Get status of all connections
+    getStatus: () =>
+      ipcRenderer.invoke('mcp:ssh:status') as Promise<{
+        connections: Array<{
+          id: string
+          name: string
+          host: string
+          username: string
+          isConnected: boolean
+          toolCount: number
+        }>
+      }>,
+    
+    // Legacy API for backward compatibility
     configure: (creds: {
       host: string
       port: number
@@ -342,15 +516,7 @@ const mcpApi = {
         error?: string
       }>,
     disconnect: () =>
-      ipcRenderer.invoke('mcp:ssh:disconnect') as Promise<{ success: boolean }>,
-    getStatus: () =>
-      ipcRenderer.invoke('mcp:ssh:status') as Promise<{
-        isConfigured: boolean
-        isConnected: boolean
-        toolCount: number
-        host?: string
-        username?: string
-      }>
+      ipcRenderer.invoke('mcp:ssh:disconnect') as Promise<{ success: boolean }>
   },
 
   // Filesystem-specific API
@@ -537,6 +703,45 @@ const workJournalApi = {
   }
 }
 
+// Notebook API for managing saved chat content
+const notebooksApi = {
+  // Notebook operations
+  list: () => ipcRenderer.invoke('notebooks:list') as Promise<Notebook[]>,
+
+  get: (id: string) => ipcRenderer.invoke('notebooks:get', id) as Promise<Notebook | null>,
+
+  create: (input: CreateNotebookInput) =>
+    ipcRenderer.invoke('notebooks:create', input) as Promise<Notebook>,
+
+  update: (id: string, input: UpdateNotebookInput) =>
+    ipcRenderer.invoke('notebooks:update', { id, input }) as Promise<Notebook | null>,
+
+  delete: (id: string) => ipcRenderer.invoke('notebooks:delete', id) as Promise<boolean>,
+
+  // Entry operations
+  entries: {
+    list: (notebookId: string) =>
+      ipcRenderer.invoke('notebooks:entries:list', notebookId) as Promise<NotebookEntry[]>,
+
+    get: (id: string) =>
+      ipcRenderer.invoke('notebooks:entries:get', id) as Promise<NotebookEntry | null>,
+
+    create: (input: CreateEntryInput) =>
+      ipcRenderer.invoke('notebooks:entries:create', input) as Promise<NotebookEntry>,
+
+    update: (id: string, input: UpdateEntryInput) =>
+      ipcRenderer.invoke('notebooks:entries:update', { id, input }) as Promise<NotebookEntry | null>,
+
+    delete: (id: string) => ipcRenderer.invoke('notebooks:entries:delete', id) as Promise<boolean>
+  },
+
+  // Search & Export
+  search: (query: string) =>
+    ipcRenderer.invoke('notebooks:search', query) as Promise<NotebookSearchResult[]>,
+
+  export: (id: string) => ipcRenderer.invoke('notebooks:export', id) as Promise<string | null>
+}
+
 // Custom APIs for renderer
 const api = {
   // File system dialogs
@@ -583,7 +788,9 @@ const api = {
   // Work Journal API
   workJournal: workJournalApi,
   // Git API
-  git: gitApi
+  git: gitApi,
+  // Notebooks API
+  notebooks: notebooksApi
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

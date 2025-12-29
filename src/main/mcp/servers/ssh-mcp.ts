@@ -99,6 +99,34 @@ export function createSSHServerConfig(
 }
 
 /**
+ * Get the MCP server name for a named SSH connection
+ * Format: ssh-{connectionName} (e.g., "ssh-DEV", "ssh-PROD")
+ */
+export function getSSHServerName(connectionName: string): string {
+  return `ssh-${connectionName}`
+}
+
+/**
+ * Check if a server name is an SSH connection server
+ */
+export function isSSHServer(serverName: string): boolean {
+  return serverName.startsWith('ssh-') || serverName === 'ssh-mcp'
+}
+
+/**
+ * Extract the connection name from an SSH server name
+ */
+export function getConnectionNameFromServer(serverName: string): string | null {
+  if (serverName === 'ssh-mcp') {
+    return 'Default'
+  }
+  if (serverName.startsWith('ssh-')) {
+    return serverName.substring(4)
+  }
+  return null
+}
+
+/**
  * Tool categories for SSH MCP
  */
 export const SSH_TOOL_CATEGORIES: Record<string, string[]> = {

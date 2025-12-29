@@ -82,7 +82,29 @@ interface GitHubAPI {
   getStatus: () => Promise<GitHubStatus>
 }
 
-// SSH-specific types
+// SSH-specific types (Multi-connection support)
+interface SSHConnection {
+  id: string
+  name: string
+  host: string
+  port: number
+  username: string
+  authType: 'password' | 'key'
+  password?: string
+  keyPath?: string
+  createdAt: string
+  enabled: boolean
+}
+
+interface SSHConnectionStatus {
+  id: string
+  name: string
+  host: string
+  username: string
+  isConnected: boolean
+  toolCount: number
+}
+
 interface SSHCredentials {
   host: string
   port: number
@@ -93,11 +115,7 @@ interface SSHCredentials {
 }
 
 interface SSHStatus {
-  isConfigured: boolean
-  isConnected: boolean
-  toolCount: number
-  host?: string
-  username?: string
+  connections: SSHConnectionStatus[]
 }
 
 interface SSHConfigureResult {
@@ -105,11 +123,39 @@ interface SSHConfigureResult {
   error?: string
 }
 
+interface SSHAddConnectionResult {
+  success: boolean
+  connection?: SSHConnection
+  error?: string
+}
+
+interface SSHUpdateConnectionResult {
+  success: boolean
+  connection?: SSHConnection
+  error?: string
+}
+
+interface SSHDeleteResult {
+  success: boolean
+  error?: string
+}
+
 interface SSHAPI {
   isConfigured: () => Promise<boolean>
+  
+  // Multi-connection management
+  listConnections: () => Promise<SSHConnection[]>
+  getConnection: (id: string) => Promise<SSHConnection | null>
+  addConnection: (connection: Omit<SSHConnection, 'id' | 'createdAt'>) => Promise<SSHAddConnectionResult>
+  updateConnection: (id: string, updates: Partial<Omit<SSHConnection, 'id' | 'createdAt'>>) => Promise<SSHUpdateConnectionResult>
+  deleteConnection: (id: string) => Promise<SSHDeleteResult>
+  connect: (id: string) => Promise<{ success: boolean; error?: string }>
+  disconnectConnection: (id: string) => Promise<{ success: boolean; error?: string }>
+  getStatus: () => Promise<SSHStatus>
+  
+  // Legacy API for backward compatibility
   configure: (creds: SSHCredentials) => Promise<SSHConfigureResult>
   disconnect: () => Promise<{ success: boolean }>
-  getStatus: () => Promise<SSHStatus>
 }
 
 // Persona Types
@@ -263,6 +309,90 @@ interface WorkJournalAPI {
   onNewEntry: (callback: (data: WorkJournalEntryEvent) => void) => () => void
   onStatusChange: (callback: (data: WorkJournalStatusEvent) => void) => () => void
   removeAllListeners: () => void
+}
+
+// Notebook Types
+interface Notebook {
+  id: string
+  name: string
+  description: string | null
+  emoji: string
+  color: string
+  created_at: string
+  updated_at: string
+  entry_count: number
+}
+
+interface NotebookEntry {
+  id: string
+  notebook_id: string
+  content: string
+  source_message_id: string | null
+  source_conversation_id: string | null
+  source_role: 'user' | 'assistant' | null
+  title: string | null
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+interface CreateNotebookInput {
+  name: string
+  description?: string
+  emoji?: string
+  color?: string
+}
+
+interface UpdateNotebookInput {
+  name?: string
+  description?: string
+  emoji?: string
+  color?: string
+}
+
+interface CreateEntryInput {
+  notebook_id: string
+  content: string
+  source_message_id?: string
+  source_conversation_id?: string
+  source_role?: 'user' | 'assistant'
+  title?: string
+  tags?: string[]
+}
+
+interface UpdateEntryInput {
+  content?: string
+  title?: string
+  tags?: string[]
+}
+
+interface NotebookSearchResult {
+  entry: NotebookEntry
+  notebook: Notebook
+  snippet: string
+  rank: number
+}
+
+interface NotebooksAPI {
+  // Notebook operations
+  list: () => Promise<Notebook[]>
+  get: (id: string) => Promise<Notebook | null>
+  create: (input: CreateNotebookInput) => Promise<Notebook>
+  update: (id: string, input: UpdateNotebookInput) => Promise<Notebook | null>
+  delete: (id: string) => Promise<boolean>
+
+  // Entry operations
+  entries: {
+    list: (notebookId: string) => Promise<NotebookEntry[]>
+    get: (id: string) => Promise<NotebookEntry | null>
+    create: (input: CreateEntryInput) => Promise<NotebookEntry>
+    update: (id: string, input: UpdateEntryInput) => Promise<NotebookEntry | null>
+    delete: (id: string) => Promise<boolean>
+  }
+
+  // Search & Export
+  search: (query: string) => Promise<NotebookSearchResult[]>
+  export: (id: string) => Promise<string | null>
 }
 
 // Notification Types
@@ -426,6 +556,8 @@ declare global {
       workJournal: WorkJournalAPI
       // Git API
       git: GitAPI
+      // Notebooks API
+      notebooks: NotebooksAPI
     }
   }
 }
@@ -443,9 +575,15 @@ export type {
   GitHubStatus,
   GitHubConfigureResult,
   GitHubAPI,
+  // SSH types
+  SSHConnection,
+  SSHConnectionStatus,
   SSHCredentials,
   SSHStatus,
   SSHConfigureResult,
+  SSHAddConnectionResult,
+  SSHUpdateConnectionResult,
+  SSHDeleteResult,
   SSHAPI,
   CredentialsAPI,
   GitRepoInfo,
@@ -467,5 +605,14 @@ export type {
   ResumptionContext,
   WorkJournalEntryEvent,
   WorkJournalStatusEvent,
-  WorkJournalAPI
+  WorkJournalAPI,
+  // Notebook types
+  Notebook,
+  NotebookEntry,
+  CreateNotebookInput,
+  UpdateNotebookInput,
+  CreateEntryInput,
+  UpdateEntryInput,
+  NotebookSearchResult,
+  NotebooksAPI
 }

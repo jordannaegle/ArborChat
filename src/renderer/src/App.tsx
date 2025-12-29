@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Layout } from './components/Layout'
-import { MCPProvider } from './components/mcp'
+import { MCPProvider, MemoryIndicator } from './components/mcp'
 import { WorkJournalProvider, SessionResumeDialog, WorkJournalPanel } from './components/workJournal'
 import { SettingsPanel } from './components/settings'
 import { PersonaListModal } from './components/chat'
@@ -120,13 +120,17 @@ function AppContent({ apiKey }: { apiKey: string }) {
     pendingToolCall,
     toolExecutions,
     isProcessingTool,
+    memoryStatus,
+    memoryItemCount,
     buildSystemPrompt,
     parseToolCall,
     showToolApprovalCard,
     executeToolDirectly,
     handleToolApprove,
     handleToolReject,
-    clearPendingTool
+    clearPendingTool,
+    fetchMemoryContext,
+    resetMemoryStatus
   } = useToolChat()
   
   // Notification integration (Phase 5)
@@ -168,6 +172,7 @@ function AppContent({ apiKey }: { apiKey: string }) {
       setPending(false)
       setActiveThreadRootId(null)
       clearPendingTool()
+      resetMemoryStatus() // Reset memory status for new conversation
       
       // Then fetch messages for the new conversation
       window.api.getMessages(activeId).then(setAllMessages)
@@ -176,8 +181,9 @@ function AppContent({ apiKey }: { apiKey: string }) {
       setStreamingContent('')
       streamBufferRef.current = ''
       setPending(false)
+      resetMemoryStatus()
     }
-  }, [activeId, clearPendingTool])
+  }, [activeId, clearPendingTool, resetMemoryStatus])
 
   // Load personas list on mount (Phase 5)
   useEffect(() => {
@@ -453,6 +459,9 @@ function AppContent({ apiKey }: { apiKey: string }) {
     if (!activeId || pending) return
 
     const parentId = activeThreadRootId
+    
+    // Check if this is the first message in a new conversation (for memory pre-fetch)
+    const isFirstMessage = mainMessages.length === 0 && !parentId
 
     // Save User Message
     const userMsg = await window.api.addMessage(activeId, 'user', content, parentId)
@@ -494,8 +503,17 @@ function AppContent({ apiKey }: { apiKey: string }) {
         { role: 'user', content: content }
       ]
     } else {
+      // Pre-fetch memory context on first message of a new conversation
+      let memoryContext: string | null = null
+      if (isFirstMessage) {
+        const memoryResult = await fetchMemoryContext()
+        memoryContext = memoryResult.context
+      }
+      
       context = [
         system,
+        // Inject memory context if available (before the user's message)
+        ...(memoryContext ? [{ role: 'system', content: memoryContext }] : []),
         ...mainMessages.map((m) => ({ role: m.role, content: m.content })),
         { role: 'user', content: content }
       ]

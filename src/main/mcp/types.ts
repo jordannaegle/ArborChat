@@ -30,6 +30,10 @@ export interface MCPConfig {
   blockedTools: string[]
   timeout: number
   servers: MCPServerConfig[]
+  // Memory settings
+  memory?: {
+    autoLoadOnSessionStart: boolean // Pre-fetch memory at start of new conversations
+  }
 }
 
 export interface PendingToolCall {

@@ -3,7 +3,8 @@ import { Send, MessageCircle, Sparkles, User, Loader2, X, Bot, AlertTriangle } f
 import { Message } from '../types'
 import { cn } from '../lib/utils'
 import { ModelSelector } from './ModelSelector'
-import { ToolApprovalCard, ToolResultCard } from './mcp'
+import { ToolApprovalCard, ToolResultCard, MemoryIndicator } from './mcp'
+import type { MemoryStatus } from './mcp'
 import { SlashCommandMenu, MarkdownRenderer } from './chat'
 import { useSlashCommands } from '../hooks'
 import type { PendingToolCall, ToolExecution } from '../hooks'
@@ -66,6 +67,9 @@ interface ChatWindowProps {
     modifiedArgs?: Record<string, unknown>
   ) => void
   onToolReject?: (id: string) => void
+  // Memory Props
+  memoryStatus?: MemoryStatus
+  memoryItemCount?: number
   // Persona Props (Phase 4)
   activePersonaId?: string | null
   activePersonaName?: string | null
@@ -267,6 +271,9 @@ export function ChatWindow({
   onToolApprove,
   onToolAlwaysApprove,
   onToolReject,
+  // Memory props
+  memoryStatus = 'idle',
+  memoryItemCount = 0,
   // Persona props
   activePersonaId,
   activePersonaName,
@@ -417,12 +424,18 @@ export function ChatWindow({
       {/* Header */}
       <div
         className={cn(
-          'h-12 border-b flex items-center px-4 shrink-0',
+          'h-12 border-b flex items-center justify-between px-4 shrink-0',
           'drag-region select-none',
           isThread ? 'border-secondary/50 bg-tertiary' : 'border-secondary bg-background'
         )}
       >
         <span className="font-semibold text-text-normal text-sm">{threadTitle}</span>
+        {/* Memory Indicator in header */}
+        <MemoryIndicator 
+          status={memoryStatus} 
+          itemCount={memoryItemCount}
+          compact
+        />
       </div>
 
       {/* MCP Disconnected Warning */}

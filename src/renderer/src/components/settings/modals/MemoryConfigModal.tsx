@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect } from 'react'
-import { X, Brain, Trash2, Check, AlertCircle, RefreshCw, Database } from 'lucide-react'
+import { X, Brain, Trash2, Check, AlertCircle, RefreshCw, Database, Sparkles } from 'lucide-react'
 import { cn } from '../../../lib/utils'
+import { ToggleSwitch } from '../shared/ToggleSwitch'
 
 interface MemoryConfigModalProps {
   onClose: () => void
@@ -13,10 +14,21 @@ export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [autoLoadEnabled, setAutoLoadEnabled] = useState(true)
 
   useEffect(() => {
     loadMemoryStats()
+    loadConfig()
   }, [])
+
+  const loadConfig = async () => {
+    try {
+      const config = await window.api.mcp.getConfig()
+      setAutoLoadEnabled(config.memory?.autoLoadOnSessionStart ?? true)
+    } catch (error) {
+      console.error('Failed to load memory config:', error)
+    }
+  }
 
   const loadMemoryStats = async () => {
     try {
@@ -25,6 +37,19 @@ export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
     } catch (error) {
       console.error('Failed to load memory stats:', error)
       setError('Failed to load memory statistics')
+    }
+  }
+
+  const handleAutoLoadToggle = async (enabled: boolean) => {
+    setAutoLoadEnabled(enabled)
+    try {
+      await window.api.mcp.updateConfig({
+        memory: { autoLoadOnSessionStart: enabled }
+      })
+      onSave()
+    } catch (error) {
+      console.error('Failed to update memory config:', error)
+      setAutoLoadEnabled(!enabled) // Revert on failure
     }
   }
 
@@ -96,6 +121,27 @@ export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
             <p className="text-text-muted">
               <strong className="text-white">Note:</strong> Memory is stored locally on your device.
             </p>
+          </div>
+
+          {/* Auto-load Setting */}
+          <div className="p-4 bg-secondary/30 rounded-xl border border-secondary/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-violet-500/20 text-violet-400">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-white">Auto-load Memory</h3>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Automatically recall stored memories at the start of new conversations
+                  </p>
+                </div>
+              </div>
+              <ToggleSwitch
+                checked={autoLoadEnabled}
+                onChange={handleAutoLoadToggle}
+              />
+            </div>
           </div>
 
           <div className="p-4 bg-secondary/30 rounded-xl border border-secondary/50">

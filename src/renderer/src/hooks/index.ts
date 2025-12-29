@@ -37,3 +37,11 @@ export type {
   ErrorContent,
   FileOperationContent
 } from './useWorkJournal'
+
+// Notebook System
+export { useNotebooks } from './useNotebooks'
+export type {
+  UseNotebooksState,
+  UseNotebooksActions,
+  UseNotebooksReturn
+} from './useNotebooks'

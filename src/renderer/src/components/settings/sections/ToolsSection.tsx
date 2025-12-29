@@ -56,6 +56,12 @@ export function ToolsSection() {
 
       setMcpEnabled(status.config.enabled)
 
+      // Calculate SSH status from connections array
+      const sshConnections = sshStatus.connections || []
+      const sshIsConfigured = sshConnections.length > 0
+      const sshIsConnected = sshConnections.some(c => c.isConnected)
+      const sshToolCount = sshConnections.reduce((total, c) => total + c.toolCount, 0)
+
       const serverList: MCPServer[] = [
         {
           id: 'desktop-commander',
@@ -86,13 +92,13 @@ export function ToolsSection() {
           id: 'ssh-mcp',
           name: 'ssh-mcp',
           displayName: 'SSH Remote',
-          description: 'Execute commands on remote servers via SSH',
+          description: `Execute commands on remote servers via SSH${sshConnections.length > 0 ? ` (${sshConnections.length} connection${sshConnections.length !== 1 ? 's' : ''})` : ''}`,
           icon: Server,
-          enabled: status.config.servers.find(s => s.name === 'ssh-mcp')?.enabled ?? false,
-          connected: sshStatus.isConnected,
+          enabled: sshConnections.some(c => c.isConnected) || (status.config.servers.find(s => s.name === 'ssh-mcp')?.enabled ?? false),
+          connected: sshIsConnected,
           requiresConfig: true,
-          configured: sshStatus.isConfigured,
-          toolCount: sshStatus.toolCount
+          configured: sshIsConfigured,
+          toolCount: sshToolCount
         },
         {
           id: 'filesystem',
