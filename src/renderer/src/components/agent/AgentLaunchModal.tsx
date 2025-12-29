@@ -1,9 +1,9 @@
 // src/renderer/src/components/agent/AgentLaunchModal.tsx
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Bot, Rocket, Sparkles, FolderOpen, Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { X, Bot, Rocket, Sparkles, FolderOpen, Shield, ShieldAlert, ShieldCheck, GitBranch, GitCommit, Files, Loader2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { AgentToolPermission, AgentTemplate } from '../../types/agent'
+import type { AgentToolPermission, AgentTemplate, GitScope, GitContext } from '../../types/agent'
 import { AgentTemplateSelector } from './AgentTemplateSelector'
 
 interface ContextSeedingOptions {
@@ -12,6 +12,16 @@ interface ContextSeedingOptions {
   parentContextDepth: number
   includeFullConversation: boolean
   includePersona: boolean
+}
+
+interface GitRepoInfo {
+  isGitRepo: boolean
+  repoRoot?: string
+  currentBranch?: string
+  branches?: string[]
+  hasUncommittedChanges?: boolean
+  uncommittedFileCount?: number
+  remoteUrl?: string
 }
 
 interface AgentLaunchModalProps {
@@ -25,6 +35,7 @@ interface AgentLaunchModalProps {
     toolPermission: AgentToolPermission
     contextOptions: ContextSeedingOptions
     workingDirectory: string
+    gitContext?: GitContext
   }) => void
   onClose: () => void
 }
@@ -42,6 +53,12 @@ export function AgentLaunchModal({
   const [toolPermission, setToolPermission] = useState<AgentToolPermission>('standard')
   const [workingDirectory, setWorkingDirectory] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplate | null>(null)
+  
+  // Git detection state
+  const [gitRepoInfo, setGitRepoInfo] = useState<GitRepoInfo | null>(null)
+  const [gitScope, setGitScope] = useState<GitScope>('all')
+  const [gitBaseBranch, setGitBaseBranch] = useState<string>('main')
+  const [isDetectingGit, setIsDetectingGit] = useState(false)
   
   // Context seeding options
   const [contextOptions, setContextOptions] = useState<ContextSeedingOptions>({
@@ -69,6 +86,9 @@ export function AgentLaunchModal({
       setToolPermission('standard')
       setSelectedTemplate(null)
       setWorkingDirectory('')
+      setGitRepoInfo(null)
+      setGitScope('all')
+      setGitBaseBranch('main')
       setContextOptions({
         includeCurrentMessage: true,
         includeParentContext: true,
@@ -78,6 +98,37 @@ export function AgentLaunchModal({
       })
     }
   }, [isOpen, hasActivePersona])
+
+  // Detect git repo when working directory changes
+  useEffect(() => {
+    const detectGitRepo = async () => {
+      if (!workingDirectory.trim()) {
+        setGitRepoInfo(null)
+        return
+      }
+
+      setIsDetectingGit(true)
+      try {
+        const info = await window.api.git?.getRepoInfo(workingDirectory)
+        setGitRepoInfo(info || null)
+        
+        // Set default base branch if available
+        if (info?.branches?.length) {
+          const defaultBranch = info.branches.find(b => 
+            ['main', 'master', 'develop'].includes(b)
+          ) || info.branches[0]
+          setGitBaseBranch(defaultBranch)
+        }
+      } catch (error) {
+        console.error('Failed to detect git repo:', error)
+        setGitRepoInfo(null)
+      } finally {
+        setIsDetectingGit(false)
+      }
+    }
+
+    detectGitRepo()
+  }, [workingDirectory])
 
   // Handle template selection
   const handleSelectTemplate = (template: AgentTemplate | null) => {
@@ -97,12 +148,23 @@ export function AgentLaunchModal({
     e.preventDefault()
     if (!instructions.trim()) return
     if (directoryMissing) return
+    
+    // Build git context if in a git repo
+    const gitContext: GitContext | undefined = gitRepoInfo?.isGitRepo ? {
+      isGitRepo: true,
+      scope: gitScope,
+      baseBranch: gitScope === 'branch' ? gitBaseBranch : undefined,
+      currentBranch: gitRepoInfo.currentBranch,
+      uncommittedFileCount: gitRepoInfo.uncommittedFileCount
+    } : undefined
+
     onLaunch({
       instructions,
       name: agentName || undefined,
       toolPermission,
       contextOptions,
-      workingDirectory
+      workingDirectory,
+      gitContext
     })
   }
 
@@ -430,6 +492,127 @@ export function AgentLaunchModal({
               </button>
             </div>
           </div>
+
+          {/* Git Scope Options (shown only when directory is a git repo) */}
+          {workingDirectory && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <GitBranch size={14} className={gitRepoInfo?.isGitRepo ? 'text-green-400' : 'text-text-muted'} />
+                <label className="text-xs font-medium text-text-muted">
+                  Git Repository
+                </label>
+                {isDetectingGit && (
+                  <Loader2 size={12} className="text-text-muted animate-spin" />
+                )}
+              </div>
+
+              {gitRepoInfo?.isGitRepo ? (
+                <div className="space-y-2 p-3 bg-green-500/5 rounded-lg border border-green-500/20">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-green-400">Git repository detected</span>
+                    <span className="text-text-muted">
+                      Branch: <span className="text-text-normal">{gitRepoInfo.currentBranch}</span>
+                    </span>
+                  </div>
+
+                  {gitRepoInfo.hasUncommittedChanges && (
+                    <p className="text-xs text-amber-400">
+                      {gitRepoInfo.uncommittedFileCount} uncommitted change{gitRepoInfo.uncommittedFileCount !== 1 ? 's' : ''}
+                    </p>
+                  )}
+
+                  <div className="space-y-2 mt-3">
+                    <label className="text-xs font-medium text-text-muted">Review Scope</label>
+                    
+                    {/* All files */}
+                    <label className={cn(
+                      'flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all',
+                      gitScope === 'all'
+                        ? 'border-green-500/50 bg-green-500/10'
+                        : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
+                    )}>
+                      <input
+                        type="radio"
+                        name="gitScope"
+                        value="all"
+                        checked={gitScope === 'all'}
+                        onChange={() => setGitScope('all')}
+                        className="text-green-500 focus:ring-green-500/30"
+                      />
+                      <Files size={14} className="text-text-muted" />
+                      <span className="text-sm text-text-normal">All files</span>
+                    </label>
+
+                    {/* Uncommitted changes */}
+                    <label className={cn(
+                      'flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all',
+                      gitScope === 'uncommitted'
+                        ? 'border-green-500/50 bg-green-500/10'
+                        : 'border-secondary/50 bg-secondary/20 hover:border-secondary',
+                      !gitRepoInfo.hasUncommittedChanges && 'opacity-50 cursor-not-allowed'
+                    )}>
+                      <input
+                        type="radio"
+                        name="gitScope"
+                        value="uncommitted"
+                        checked={gitScope === 'uncommitted'}
+                        onChange={() => setGitScope('uncommitted')}
+                        disabled={!gitRepoInfo.hasUncommittedChanges}
+                        className="text-green-500 focus:ring-green-500/30"
+                      />
+                      <GitCommit size={14} className="text-text-muted" />
+                      <div className="flex-1">
+                        <span className="text-sm text-text-normal">Uncommitted changes only</span>
+                        {gitRepoInfo.hasUncommittedChanges && (
+                          <span className="text-xs text-text-muted ml-2">
+                            ({gitRepoInfo.uncommittedFileCount} file{gitRepoInfo.uncommittedFileCount !== 1 ? 's' : ''})
+                          </span>
+                        )}
+                      </div>
+                    </label>
+
+                    {/* Changes since branch */}
+                    <div className={cn(
+                      'p-2.5 rounded-lg border transition-all',
+                      gitScope === 'branch'
+                        ? 'border-green-500/50 bg-green-500/10'
+                        : 'border-secondary/50 bg-secondary/20'
+                    )}>
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="gitScope"
+                          value="branch"
+                          checked={gitScope === 'branch'}
+                          onChange={() => setGitScope('branch')}
+                          className="text-green-500 focus:ring-green-500/30"
+                        />
+                        <GitBranch size={14} className="text-text-muted" />
+                        <span className="text-sm text-text-normal">Changes since branch</span>
+                      </label>
+                      {gitScope === 'branch' && gitRepoInfo.branches && (
+                        <select
+                          value={gitBaseBranch}
+                          onChange={(e) => setGitBaseBranch(e.target.value)}
+                          className="mt-2 ml-7 bg-secondary/50 text-text-normal text-xs px-2 py-1.5 rounded border border-secondary/50 focus:outline-none focus:ring-1 focus:ring-green-500/30"
+                        >
+                          {gitRepoInfo.branches.map(branch => (
+                            <option key={branch} value={branch}>{branch}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : workingDirectory && !isDetectingGit ? (
+                <div className="p-3 bg-secondary/20 rounded-lg border border-secondary/30">
+                  <p className="text-xs text-text-muted">
+                    Not a git repository. The agent will review all files in the directory.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-secondary/30">

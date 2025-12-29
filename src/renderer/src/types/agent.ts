@@ -25,6 +25,25 @@ export type AgentToolPermission =
 export type ToolRiskLevel = 'safe' | 'moderate' | 'dangerous'
 
 /**
+ * Git Scope - For code review and analysis agents
+ */
+export type GitScope = 
+  | 'all'                 // Review all files in directory
+  | 'uncommitted'         // Only uncommitted changes
+  | 'branch'              // Changes since a specific branch
+
+/**
+ * Git Context - Git-specific configuration for agents
+ */
+export interface GitContext {
+  isGitRepo: boolean
+  scope: GitScope
+  baseBranch?: string     // For 'branch' scope
+  currentBranch?: string
+  uncommittedFileCount?: number
+}
+
+/**
  * Agent Context - Initial context seeding configuration
  */
 export interface AgentContext {
@@ -35,6 +54,7 @@ export interface AgentContext {
   includePersona: boolean
   seedMessages: AgentMessage[]     // Computed seed messages
   workingDirectory: string
+  gitContext?: GitContext          // Git-specific context for code agents
 }
 
 /**

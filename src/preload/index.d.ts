@@ -132,6 +132,125 @@ interface PersonaAPI {
   getDirectory: () => Promise<string>
 }
 
+// Work Journal Types
+interface WorkSession {
+  id: string
+  conversationId: string
+  originalPrompt: string
+  status: 'active' | 'paused' | 'completed' | 'crashed'
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+  tokenEstimate: number
+  entryCount: number
+}
+
+interface WorkEntry {
+  id: number
+  sessionId: string
+  sequenceNum: number
+  entryType: string
+  timestamp: number
+  content: Record<string, unknown>
+  tokenEstimate: number
+  importance: 'low' | 'normal' | 'high' | 'critical'
+}
+
+interface WorkCheckpoint {
+  id: string
+  sessionId: string
+  createdAt: number
+  summary: string
+  keyDecisions: string[]
+  currentState: string
+  filesModified: string[]
+  pendingActions: string[]
+}
+
+interface ResumptionContext {
+  originalPrompt: string
+  workSummary: string
+  keyDecisions: string[]
+  currentState: string
+  filesModified: string[]
+  pendingActions: string[]
+  errorHistory: string[]
+  suggestedNextSteps: string[]
+  tokenCount: number
+}
+
+interface WorkJournalEntryEvent {
+  sessionId: string
+  entry: WorkEntry
+}
+
+interface WorkJournalStatusEvent {
+  sessionId: string
+  status: 'active' | 'paused' | 'completed' | 'crashed'
+}
+
+interface WorkJournalAPI {
+  // Session Management
+  createSession: (conversationId: string, originalPrompt: string) => Promise<WorkSession>
+  getSession: (sessionId: string) => Promise<WorkSession | null>
+  getActiveSession: (conversationId: string) => Promise<WorkSession | null>
+  updateSessionStatus: (sessionId: string, status: 'active' | 'paused' | 'completed' | 'crashed') => Promise<{ success: boolean }>
+  
+  // Entry Logging
+  logEntry: (
+    sessionId: string,
+    entryType: string,
+    content: Record<string, unknown>,
+    importance?: 'low' | 'normal' | 'high' | 'critical'
+  ) => Promise<WorkEntry>
+  getEntries: (
+    sessionId: string,
+    options?: {
+      since?: number
+      limit?: number
+      importance?: ('low' | 'normal' | 'high' | 'critical')[]
+      types?: string[]
+    }
+  ) => Promise<WorkEntry[]>
+  
+  // Checkpointing
+  createCheckpoint: (sessionId: string, options?: { manual?: boolean }) => Promise<WorkCheckpoint>
+  getLatestCheckpoint: (sessionId: string) => Promise<WorkCheckpoint | null>
+  
+  // Resumption
+  generateResumptionContext: (sessionId: string, targetTokens?: number) => Promise<ResumptionContext>
+  
+  // Utilities
+  getSessionTokens: (sessionId: string) => Promise<number>
+  isApproachingLimit: (sessionId: string, threshold?: number) => Promise<boolean>
+  
+  // Subscriptions
+  subscribe: (sessionId: string) => Promise<{ success: boolean; sessionId: string }>
+  unsubscribe: (sessionId: string) => Promise<{ success: boolean }>
+  
+  // Event listeners
+  onNewEntry: (callback: (data: WorkJournalEntryEvent) => void) => () => void
+  onStatusChange: (callback: (data: WorkJournalStatusEvent) => void) => () => void
+  removeAllListeners: () => void
+}
+
+// Notification Types
+interface DesktopNotificationPayload {
+  title: string
+  body: string
+  urgency?: 'low' | 'normal' | 'critical'
+  agentId?: string
+}
+
+interface NotificationsAPI {
+  show: (payload: DesktopNotificationPayload) => Promise<{ success: boolean }>
+  setBadge: (count: number) => Promise<{ success: boolean }>
+  requestAttention: () => Promise<{ success: boolean }>
+  clearBadge: () => Promise<{ success: boolean }>
+  onAgentClick: (callback: (agentId: string) => void) => () => void
+  removeAllListeners: () => void
+}
+
 // Credentials API Types
 interface CredentialsAPI {
   getConfigured: () => Promise<Record<string, boolean>>
@@ -140,6 +259,35 @@ interface CredentialsAPI {
   setKey: (providerId: string, apiKey: string) => Promise<{ success: boolean }>
   deleteKey: (providerId: string) => Promise<{ success: boolean }>
   validateKey: (providerId: string, apiKey: string) => Promise<boolean>
+}
+
+// Git API Types
+interface GitRepoInfo {
+  isGitRepo: boolean
+  repoRoot?: string
+  currentBranch?: string
+  branches?: string[]
+  hasUncommittedChanges?: boolean
+  uncommittedFileCount?: number
+  remoteUrl?: string
+}
+
+interface GitChangedFile {
+  path: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked'
+}
+
+interface GitDiffInfo {
+  changedFiles: GitChangedFile[]
+  totalAdditions: number
+  totalDeletions: number
+}
+
+interface GitAPI {
+  getRepoInfo: (directory: string) => Promise<GitRepoInfo>
+  getUncommittedFiles: (directory: string) => Promise<GitChangedFile[]>
+  getChangedFilesSinceBranch: (directory: string, baseBranch: string) => Promise<GitChangedFile[]>
+  getDiffStats: (directory: string, baseBranch?: string) => Promise<GitDiffInfo>
 }
 
 interface MCPInitResult {
@@ -220,6 +368,12 @@ declare global {
       credentials: CredentialsAPI
       // Personas API
       personas: PersonaAPI
+      // Notifications API
+      notifications: NotificationsAPI
+      // Work Journal API
+      workJournal: WorkJournalAPI
+      // Git API
+      git: GitAPI
     }
   }
 }
@@ -238,10 +392,24 @@ export type {
   GitHubConfigureResult,
   GitHubAPI,
   CredentialsAPI,
+  GitRepoInfo,
+  GitChangedFile,
+  GitDiffInfo,
+  GitAPI,
   PersonaMetadata,
   Persona,
   CreatePersonaInput,
   UpdatePersonaInput,
   PersonaGenerationResult,
-  PersonaAPI
+  PersonaAPI,
+  DesktopNotificationPayload,
+  NotificationsAPI,
+  // Work Journal types
+  WorkSession,
+  WorkEntry,
+  WorkCheckpoint,
+  ResumptionContext,
+  WorkJournalEntryEvent,
+  WorkJournalStatusEvent,
+  WorkJournalAPI
 }

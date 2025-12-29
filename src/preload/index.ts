@@ -57,6 +57,104 @@ interface PersonaGenerationResult {
   tags: string[]
 }
 
+// Work Journal API types for agent work persistence
+interface WorkSession {
+  id: string
+  conversationId: string
+  originalPrompt: string
+  status: 'active' | 'paused' | 'completed' | 'crashed'
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+  tokenEstimate: number
+  entryCount: number
+}
+
+interface WorkEntry {
+  id: number
+  sessionId: string
+  sequenceNum: number
+  entryType: string
+  timestamp: number
+  content: Record<string, unknown>
+  tokenEstimate: number
+  importance: 'low' | 'normal' | 'high' | 'critical'
+}
+
+interface WorkCheckpoint {
+  id: string
+  sessionId: string
+  createdAt: number
+  summary: string
+  keyDecisions: string[]
+  currentState: string
+  filesModified: string[]
+  pendingActions: string[]
+}
+
+interface ResumptionContext {
+  originalPrompt: string
+  workSummary: string
+  keyDecisions: string[]
+  currentState: string
+  filesModified: string[]
+  pendingActions: string[]
+  errorHistory: string[]
+  suggestedNextSteps: string[]
+  tokenCount: number
+}
+
+interface WorkJournalEntryEvent {
+  sessionId: string
+  entry: WorkEntry
+}
+
+interface WorkJournalStatusEvent {
+  sessionId: string
+  status: 'active' | 'paused' | 'completed' | 'crashed'
+}
+
+// Git API types
+interface GitRepoInfo {
+  isGitRepo: boolean
+  repoRoot?: string
+  currentBranch?: string
+  branches?: string[]
+  hasUncommittedChanges?: boolean
+  uncommittedFileCount?: number
+  remoteUrl?: string
+}
+
+interface GitChangedFile {
+  path: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked'
+}
+
+interface GitDiffInfo {
+  changedFiles: GitChangedFile[]
+  totalAdditions: number
+  totalDeletions: number
+}
+
+// Git API for repository detection and information
+const gitApi = {
+  // Get comprehensive git repo info for a directory
+  getRepoInfo: (directory: string) =>
+    ipcRenderer.invoke('git:get-repo-info', directory) as Promise<GitRepoInfo>,
+
+  // Get list of uncommitted/changed files
+  getUncommittedFiles: (directory: string) =>
+    ipcRenderer.invoke('git:get-uncommitted-files', directory) as Promise<GitChangedFile[]>,
+
+  // Get files changed since a specific branch
+  getChangedFilesSinceBranch: (directory: string, baseBranch: string) =>
+    ipcRenderer.invoke('git:get-changed-files-since-branch', { directory, baseBranch }) as Promise<GitChangedFile[]>,
+
+  // Get diff statistics
+  getDiffStats: (directory: string, baseBranch?: string) =>
+    ipcRenderer.invoke('git:get-diff-stats', { directory, baseBranch }) as Promise<GitDiffInfo>
+}
+
 // Persona API for managing AI personalities
 const personaApi = {
   // List all personas (metadata only)
@@ -225,6 +323,151 @@ const mcpApi = {
   }
 }
 
+// Notification API types
+interface DesktopNotificationPayload {
+  title: string
+  body: string
+  urgency?: 'low' | 'normal' | 'critical'
+  agentId?: string
+}
+
+// Notification API for desktop notifications and badges
+const notificationApi = {
+  // Show a desktop notification
+  show: (payload: DesktopNotificationPayload) =>
+    ipcRenderer.invoke('notifications:show', payload),
+
+  // Update badge count (dock on macOS, taskbar on Windows)
+  setBadge: (count: number) => ipcRenderer.invoke('notifications:setBadge', count),
+
+  // Request window attention (flash taskbar/dock)
+  requestAttention: () => ipcRenderer.invoke('notifications:requestAttention'),
+
+  // Clear badge
+  clearBadge: () => ipcRenderer.invoke('notifications:clearBadge'),
+
+  // Listen for notification clicks that target an agent
+  onAgentClick: (callback: (agentId: string) => void) => {
+    const handler = (_: unknown, agentId: string) => callback(agentId)
+    ipcRenderer.on('notification:agent-click', handler)
+    return () => ipcRenderer.removeListener('notification:agent-click', handler)
+  },
+
+  // Remove notification listeners
+  removeAllListeners: () => {
+    ipcRenderer.removeAllListeners('notification:agent-click')
+  }
+}
+
+// Work Journal API for agent work persistence
+const workJournalApi = {
+  // Session Management
+  createSession: (conversationId: string, originalPrompt: string) =>
+    ipcRenderer.invoke('work-journal:create-session', {
+      conversationId,
+      originalPrompt
+    }) as Promise<WorkSession>,
+
+  getSession: (sessionId: string) =>
+    ipcRenderer.invoke('work-journal:get-session', sessionId) as Promise<WorkSession | null>,
+
+  getActiveSession: (conversationId: string) =>
+    ipcRenderer.invoke('work-journal:get-active-session', conversationId) as Promise<WorkSession | null>,
+
+  updateSessionStatus: (
+    sessionId: string,
+    status: 'active' | 'paused' | 'completed' | 'crashed'
+  ) =>
+    ipcRenderer.invoke('work-journal:update-session-status', {
+      sessionId,
+      status
+    }) as Promise<{ success: boolean }>,
+
+  // Entry Logging
+  logEntry: (
+    sessionId: string,
+    entryType: string,
+    content: Record<string, unknown>,
+    importance?: 'low' | 'normal' | 'high' | 'critical'
+  ) =>
+    ipcRenderer.invoke('work-journal:log-entry', {
+      sessionId,
+      entryType,
+      content,
+      importance
+    }) as Promise<WorkEntry>,
+
+  getEntries: (
+    sessionId: string,
+    options?: {
+      since?: number
+      limit?: number
+      importance?: ('low' | 'normal' | 'high' | 'critical')[]
+      types?: string[]
+    }
+  ) =>
+    ipcRenderer.invoke('work-journal:get-entries', {
+      sessionId,
+      options
+    }) as Promise<WorkEntry[]>,
+
+  // Checkpointing
+  createCheckpoint: (sessionId: string, options?: { manual?: boolean }) =>
+    ipcRenderer.invoke('work-journal:create-checkpoint', {
+      sessionId,
+      options
+    }) as Promise<WorkCheckpoint>,
+
+  getLatestCheckpoint: (sessionId: string) =>
+    ipcRenderer.invoke('work-journal:get-latest-checkpoint', sessionId) as Promise<WorkCheckpoint | null>,
+
+  // Resumption
+  generateResumptionContext: (sessionId: string, targetTokens?: number) =>
+    ipcRenderer.invoke('work-journal:generate-resumption-context', {
+      sessionId,
+      targetTokens
+    }) as Promise<ResumptionContext>,
+
+  // Utilities
+  getSessionTokens: (sessionId: string) =>
+    ipcRenderer.invoke('work-journal:get-session-tokens', sessionId) as Promise<number>,
+
+  isApproachingLimit: (sessionId: string, threshold?: number) =>
+    ipcRenderer.invoke('work-journal:is-approaching-limit', {
+      sessionId,
+      threshold
+    }) as Promise<boolean>,
+
+  // Real-time Subscriptions
+  subscribe: (sessionId: string) =>
+    ipcRenderer.invoke('work-journal:subscribe', sessionId) as Promise<{
+      success: boolean
+      sessionId: string
+    }>,
+
+  unsubscribe: (sessionId: string) =>
+    ipcRenderer.invoke('work-journal:unsubscribe', sessionId) as Promise<{ success: boolean }>,
+
+  // Event listeners (returns unsubscribe function)
+  onNewEntry: (callback: (data: WorkJournalEntryEvent) => void) => {
+    const handler = (_: unknown, data: WorkJournalEntryEvent) => callback(data)
+    ipcRenderer.on('work-journal:new-entry', handler)
+    return () => ipcRenderer.removeListener('work-journal:new-entry', handler)
+  },
+
+  onStatusChange: (callback: (data: WorkJournalStatusEvent) => void) => {
+    const handler = (_: unknown, data: WorkJournalStatusEvent) => callback(data)
+    ipcRenderer.on('work-journal:status-change', handler)
+    return () => ipcRenderer.removeListener('work-journal:status-change', handler)
+  },
+
+  // Remove all event listeners
+  removeAllListeners: () => {
+    ipcRenderer.removeAllListeners('work-journal:new-entry')
+    ipcRenderer.removeAllListeners('work-journal:status-change')
+  }
+}
+
 // Custom APIs for renderer
 const api = {
   // File system dialogs
@@ -265,7 +508,13 @@ const api = {
   // Credentials API
   credentials: credentialsApi,
   // Personas API
-  personas: personaApi
+  personas: personaApi,
+  // Notifications API
+  notifications: notificationApi,
+  // Work Journal API
+  workJournal: workJournalApi,
+  // Git API
+  git: gitApi
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
