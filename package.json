@@ -32,6 +32,8 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
     "openai": "^6.15.0",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.0",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
@@ -43,6 +45,7 @@
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
     "electron": "^39.2.7",

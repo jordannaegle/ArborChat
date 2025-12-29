@@ -24,6 +24,7 @@ import { setupMCPHandlers, mcpManager } from './mcp'
 import { setupPersonaHandlers } from './personas'
 import { setupNotificationHandlers, registerMainWindow } from './notifications'
 import { setupWorkJournalHandlers, cleanupWorkJournalSubscriptions } from './workJournal'
+import { setupNotebookHandlers } from './notebooks'
 import { credentialManager, ProviderId } from './credentials'
 import { getGitRepoInfo, getUncommittedFiles, getChangedFilesSinceBranch, getDiffStats } from './services'
 
@@ -336,6 +337,9 @@ app.whenReady().then(() => {
 
   // Setup Work Journal handlers for agent work persistence
   setupWorkJournalHandlers()
+
+  // Setup Notebook handlers for saving chat content
+  setupNotebookHandlers()
 
   const mainWindow = createWindow()
   
