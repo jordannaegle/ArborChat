@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ToolDefinition, MCPServerConfig, MCPConfig } from './types'
 import { loadMCPConfig } from './config'
+import { getGitHubToken } from './credentials'
 
 interface ConnectedServer {
   config: MCPServerConfig
@@ -56,16 +57,30 @@ class MCPManager {
     console.log(`[MCP] Command: ${serverConfig.command} ${serverConfig.args.join(' ')}`)
 
     try {
+      // Build environment, injecting stored credentials for servers that need them
+      const serverEnv: Record<string, string> = {
+        ...process.env as Record<string, string>,
+        ...serverConfig.env,
+        // Ensure PATH includes common locations
+        PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}`
+      }
+
+      // Inject stored credentials for specific servers
+      if (serverConfig.name === 'github') {
+        const githubToken = await getGitHubToken()
+        if (githubToken) {
+          serverEnv.GITHUB_PERSONAL_ACCESS_TOKEN = githubToken
+          console.log('[MCP] Injected stored GitHub token')
+        } else {
+          console.warn('[MCP] GitHub server enabled but no token found in credential storage')
+        }
+      }
+
       // Create transport - SDK now handles process spawning internally
       const transport = new StdioClientTransport({
         command: serverConfig.command,
         args: serverConfig.args,
-        env: {
-          ...process.env,
-          ...serverConfig.env,
-          // Ensure PATH includes common locations
-          PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}`
-        },
+        env: serverEnv,
         stderr: 'pipe'
       })
 

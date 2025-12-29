@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, MessageCircle, Sparkles, User, Loader2, X, Bot } from 'lucide-react'
+import { Send, MessageCircle, Sparkles, User, Loader2, X, Bot, AlertTriangle } from 'lucide-react'
 import { Message } from '../types'
 import { cn } from '../lib/utils'
 import { ModelSelector } from './ModelSelector'
@@ -56,6 +56,7 @@ interface ChatWindowProps {
   selectedModel: string
   onModelChange: (modelId: string) => void
   // MCP Tool Props
+  mcpConnected?: boolean
   pendingToolCall?: PendingToolCall | null
   toolExecutions?: ToolExecution[]
   onToolApprove?: (id: string, modifiedArgs?: Record<string, unknown>) => void
@@ -252,6 +253,7 @@ export function ChatWindow({
   threadTitle = 'Chat',
   selectedModel,
   onModelChange,
+  mcpConnected = true,
   pendingToolCall,
   toolExecutions,
   onToolApprove,
@@ -414,6 +416,16 @@ export function ChatWindow({
       >
         <span className="font-semibold text-text-normal text-sm">{threadTitle}</span>
       </div>
+
+      {/* MCP Disconnected Warning */}
+      {!mcpConnected && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 flex items-center gap-2">
+          <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+          <span className="text-xs text-amber-500">
+            Desktop Commander not connected. File system tools are unavailable.
+          </span>
+        </div>
+      )}
 
       {/* Messages area */}
       <div

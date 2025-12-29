@@ -42,8 +42,31 @@ export function useToolChat(): UseToolChatResult {
 
   // Build enhanced system prompt with tool instructions
   const buildSystemPrompt = useCallback((basePrompt: string): string => {
-    if (!connected || !systemPrompt) {
+    // Debug logging to diagnose tool instruction issues
+    console.log('[useToolChat] buildSystemPrompt called:', {
+      connected,
+      hasSystemPrompt: !!systemPrompt,
+      systemPromptLength: systemPrompt?.length || 0
+    })
+    
+    if (!connected) {
+      console.warn('[useToolChat] MCP not connected - tool instructions will NOT be included!')
+      console.warn('[useToolChat] This means the AI will NOT have access to file system tools')
       return basePrompt
+    }
+    
+    if (!systemPrompt) {
+      console.warn('[useToolChat] System prompt is empty - tool instructions will NOT be included!')
+      console.warn('[useToolChat] Check if MCP initialization completed successfully')
+      return basePrompt
+    }
+    
+    // Verify the system prompt contains tool instructions
+    if (!systemPrompt.includes('ArborChat Tool Integration')) {
+      console.warn('[useToolChat] System prompt does not contain expected tool integration header!')
+      console.warn('[useToolChat] System prompt preview:', systemPrompt.substring(0, 200))
+    } else {
+      console.log('[useToolChat] ✅ Including MCP tool instructions in system prompt')
     }
     
     return `${basePrompt}

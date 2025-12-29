@@ -23,15 +23,24 @@ ${JSON.stringify(tool.inputSchema, null, 2)}
     )
     .join('\n')
 
-  return `## Available Tools
+  return `## ArborChat Tool Integration
 
-You have access to the following tools for interacting with the local file system and processes:
+You are running inside ArborChat, a desktop application that provides you with tools to interact with the user's local file system and processes. These tools are executed by ArborChat on your behalf - you DO have the ability to read and write files through this system.
+
+**IMPORTANT**: When the user asks you to read files, modify files, search directories, or perform any file system operation, you SHOULD use the tools below. Do NOT say you cannot access files - you CAN access files through ArborChat's tool system.
+
+### How It Works
+1. You output a special \`tool_use\` code block in your response
+2. ArborChat parses this block and executes the tool
+3. The result is returned to you so you can continue
+
+### Available Tools
 
 ${toolDescriptions}
 
-## How to Request Tool Use
+## How to Use Tools
 
-When you need to use a tool, respond with a JSON block in this exact format:
+When you need to use a tool, include a JSON block in this EXACT format in your response:
 
 \`\`\`tool_use
 {
@@ -44,14 +53,25 @@ When you need to use a tool, respond with a JSON block in this exact format:
 }
 \`\`\`
 
-## Important Guidelines
+**Example** - Reading a file:
+\`\`\`tool_use
+{
+  "tool": "read_file",
+  "args": {
+    "path": "/Users/username/project/README.md"
+  },
+  "explanation": "Reading the README to understand the project structure"
+}
+\`\`\`
 
-1. **Explain before acting** - Always explain what you're about to do before requesting a tool
-2. **Read before write** - Use read_file or list_directory to check before modifying files
-3. **Use absolute paths** - Always use full paths like /Users/username/project/file.txt
-4. **One tool at a time** - Request only one tool per response, wait for results
-5. **Handle errors gracefully** - If a tool fails, explain what happened and suggest alternatives
-6. **Prefer safe operations** - Use read-only tools when possible
+## Guidelines
+
+1. **Use tools proactively** - When asked about files or code, use tools to read them
+2. **Explain briefly, then act** - Mention what you'll do, then use the tool
+3. **Read before write** - Use read_file or list_directory to check before modifying files
+4. **Use absolute paths** - Always use full paths like /Users/username/project/file.txt
+5. **One tool at a time** - Request only one tool per response, wait for results
+6. **Handle errors gracefully** - If a tool fails, explain what happened and suggest alternatives
 
 ## Tool Categories
 
@@ -60,7 +80,7 @@ When you need to use a tool, respond with a JSON block in this exact format:
 **Search:** start_search, get_more_search_results, stop_search
 **Processes:** start_process, read_process_output, interact_with_process, list_sessions
 
-After requesting a tool, wait for the user to approve and for the result before continuing.`
+After outputting a tool_use block, ArborChat will execute it and provide you with the results. Continue your response based on those results.`
 }
 
 /**

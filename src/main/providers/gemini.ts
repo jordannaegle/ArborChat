@@ -130,6 +130,15 @@ export class GeminiProvider implements AIProvider {
       console.log('[Gemini] System instruction:', systemMessage ? 'Present' : 'None')
       if (systemMessage) {
         console.log('[Gemini] System instruction length:', systemMessage.content.length)
+        // Check if tool instructions are included
+        if (systemMessage.content.includes('ArborChat Tool Integration')) {
+          console.log('[Gemini] ✅ Tool instructions INCLUDED in system prompt')
+        } else {
+          console.log('[Gemini] ⚠️ Tool instructions NOT FOUND in system prompt')
+          console.log('[Gemini] System prompt preview:', systemMessage.content.substring(0, 300))
+        }
+      } else {
+        console.log('[Gemini] ⚠️ No system message found!')
       }
 
       // Create model with system instruction if provided

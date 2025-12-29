@@ -93,6 +93,15 @@ export class AnthropicProvider implements AIProvider {
       if (systemMessage) {
         console.log('[Anthropic] System instruction: Present')
         console.log('[Anthropic] System instruction length:', systemMessage.content.length)
+        // Check if tool instructions are included
+        if (systemMessage.content.includes('ArborChat Tool Integration')) {
+          console.log('[Anthropic] ✅ Tool instructions INCLUDED in system prompt')
+        } else {
+          console.log('[Anthropic] ⚠️ Tool instructions NOT FOUND in system prompt')
+          console.log('[Anthropic] System prompt preview:', systemMessage.content.substring(0, 300))
+        }
+      } else {
+        console.log('[Anthropic] ⚠️ No system message found!')
       }
 
       // Convert messages to Anthropic format (exclude system messages)

@@ -100,7 +100,7 @@ export function Layout({
   onCloseThread,
   onSettings,
   // MCP Tool Props
-  mcpConnected: _mcpConnected,
+  mcpConnected,
   pendingToolCall,
   toolExecutions,
   onToolApprove,
@@ -152,6 +152,7 @@ export function Layout({
               threadTitle="Chat"
               selectedModel={selectedModel}
               onModelChange={onModelChange}
+              mcpConnected={mcpConnected}
               pendingToolCall={pendingToolCall}
               toolExecutions={toolExecutions}
               onToolApprove={onToolApprove}

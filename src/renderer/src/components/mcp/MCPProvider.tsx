@@ -64,12 +64,18 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
       setError(null)
 
       const result = await window.api.mcp.init()
+      console.log('[MCP Provider] Init result:', {
+        success: result.success,
+        toolCount: result.tools?.length || 0,
+        connectionStatus: result.connectionStatus
+      })
 
       if (result.success) {
         setTools(result.tools || [])
-        setConnected(Object.values(result.connectionStatus || {}).some(Boolean))
+        const isConnected = Object.values(result.connectionStatus || {}).some(Boolean)
+        setConnected(isConnected)
         setInitialized(true)
-        console.log('[MCP Provider] Initialized with', result.tools?.length, 'tools')
+        console.log('[MCP Provider] Initialized with', result.tools?.length, 'tools, connected:', isConnected)
 
         // Load config
         const configResult = await window.api.mcp.getConfig()
@@ -77,6 +83,15 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
 
         // Load system prompt
         const prompt = await window.api.mcp.getSystemPrompt()
+        console.log('[MCP Provider] System prompt loaded, length:', prompt?.length || 0)
+        if (!prompt) {
+          console.warn('[MCP Provider] WARNING: System prompt is empty! Tools will not be available to AI.')
+        } else if (!prompt.includes('ArborChat Tool Integration')) {
+          console.warn('[MCP Provider] WARNING: System prompt missing tool integration header!')
+          console.warn('[MCP Provider] Prompt preview:', prompt.substring(0, 200))
+        } else {
+          console.log('[MCP Provider] ✅ System prompt contains tool instructions')
+        }
         setSystemPrompt(prompt)
       } else {
         setError(result.error || 'Failed to initialize MCP')
