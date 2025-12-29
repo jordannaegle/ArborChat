@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { X, Bot, Rocket, Sparkles, FolderOpen, Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { AgentToolPermission } from '../../types/agent'
+import type { AgentToolPermission, AgentTemplate } from '../../types/agent'
+import { AgentTemplateSelector } from './AgentTemplateSelector'
 
 interface ContextSeedingOptions {
   includeCurrentMessage: boolean
@@ -40,6 +41,7 @@ export function AgentLaunchModal({
   const [agentName, setAgentName] = useState('')
   const [toolPermission, setToolPermission] = useState<AgentToolPermission>('standard')
   const [workingDirectory, setWorkingDirectory] = useState('')
+  const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplate | null>(null)
   
   // Context seeding options
   const [contextOptions, setContextOptions] = useState<ContextSeedingOptions>({
@@ -65,6 +67,8 @@ export function AgentLaunchModal({
       setInstructions('')
       setAgentName('')
       setToolPermission('standard')
+      setSelectedTemplate(null)
+      setWorkingDirectory('')
       setContextOptions({
         includeCurrentMessage: true,
         includeParentContext: true,
@@ -75,9 +79,24 @@ export function AgentLaunchModal({
     }
   }, [isOpen, hasActivePersona])
 
+  // Handle template selection
+  const handleSelectTemplate = (template: AgentTemplate | null) => {
+    setSelectedTemplate(template)
+    if (template) {
+      setInstructions(template.instructions)
+      setToolPermission(template.toolPermission)
+      setAgentName(template.name)
+    }
+  }
+
+  // Check if working directory is required but not set
+  const directoryRequired = selectedTemplate?.requiresDirectory ?? false
+  const directoryMissing = directoryRequired && !workingDirectory.trim()
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!instructions.trim()) return
+    if (directoryMissing) return
     onLaunch({
       instructions,
       name: agentName || undefined,
@@ -144,6 +163,12 @@ export function AgentLaunchModal({
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-4 space-y-5">
+          {/* Template Selector */}
+          <AgentTemplateSelector
+            selectedTemplateId={selectedTemplate?.id ?? null}
+            onSelectTemplate={handleSelectTemplate}
+          />
+
           {/* Root Context Preview */}
           {rootContext && (
             <div className="space-y-2">
@@ -364,8 +389,17 @@ export function AgentLaunchModal({
           {/* Working Directory */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-text-muted">
-              Working Directory <span className="text-text-muted/50">(optional)</span>
+              Working Directory {directoryRequired ? (
+                <span className="text-red-400">*</span>
+              ) : (
+                <span className="text-text-muted/50">(optional)</span>
+              )}
             </label>
+            {directoryMissing && (
+              <p className="text-xs text-red-400">
+                A working directory is required for {selectedTemplate?.name}
+              </p>
+            )}
             <div className="flex gap-2">
               <input
                 type="text"
@@ -412,7 +446,7 @@ export function AgentLaunchModal({
             </button>
             <button
               type="submit"
-              disabled={!instructions.trim()}
+              disabled={!instructions.trim() || directoryMissing}
               className={cn(
                 'flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium',
                 'bg-gradient-to-r from-violet-500 to-purple-600',

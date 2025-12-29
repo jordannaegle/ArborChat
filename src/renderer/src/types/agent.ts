@@ -181,3 +181,56 @@ export type AgentEventType =
   | 'tool_completed'
   | 'error'
   | 'completed'
+
+/**
+ * Agent Template - Predefined configurations for common agent tasks (Phase 6)
+ */
+export interface AgentTemplate {
+  id: string
+  name: string
+  description: string
+  icon: string                       // Lucide icon name
+  category: AgentTemplateCategory
+  instructions: string               // Pre-filled instructions
+  toolPermission: AgentToolPermission
+  tags: string[]
+  isBuiltIn: boolean                 // System templates vs user-created
+  requiresDirectory?: boolean        // Whether a working directory must be selected
+}
+
+export type AgentTemplateCategory = 
+  | 'development'
+  | 'documentation'
+  | 'analysis'
+  | 'automation'
+  | 'custom'
+
+/**
+ * Agent Statistics - Tracking agent performance over time (Phase 6)
+ */
+export interface AgentStats {
+  totalAgents: number
+  completedCount: number
+  failedCount: number
+  successRate: number               // 0-100 percentage
+  avgDurationMs: number
+  avgStepsPerAgent: number
+  toolUsageByName: Record<string, number>
+}
+
+/**
+ * Agent Retry Configuration (Phase 6)
+ */
+export interface AgentRetryConfig {
+  maxRetries: number
+  initialDelayMs: number
+  maxDelayMs: number
+  backoffMultiplier: number
+}
+
+export const DEFAULT_RETRY_CONFIG: AgentRetryConfig = {
+  maxRetries: 3,
+  initialDelayMs: 1000,
+  maxDelayMs: 30000,
+  backoffMultiplier: 2
+}
