@@ -299,6 +299,11 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
       // Build context
       const messages = buildContextMessages(agent)
       
+      // DIAGNOSTIC: Log message structure for debugging API errors
+      const messageSummary = messages.map((m, i) => `${i}: ${m.role} (${m.content.length} chars)`).join('\n')
+      console.log(`[AgentRunner] Message structure for ${agent.config.modelId}:\n${messageSummary}`)
+      console.log(`[AgentRunner] Last message role: ${messages[messages.length - 1]?.role}`)
+      
       // Get API key (for Gemini provider)
       const apiKey = await window.api.credentials.getKey('gemini')
       if (!apiKey) {
