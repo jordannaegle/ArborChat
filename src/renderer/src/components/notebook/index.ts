@@ -17,10 +17,24 @@ export { NotebookViewer } from './NotebookViewer'
 export { NotebookEntryCard } from './NotebookEntryCard'
 export { CreateNotebookModal } from './CreateNotebookModal'
 
+// Phase 6 Components
+export { SortableEntryList } from './SortableEntryList'
+export { ExportMenu } from './ExportMenu'
+export { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp'
+
+// Phase 7: Skeleton Loading Components
+export {
+  NotebookCardSkeleton,
+  NotebookListSkeleton,
+  NotebookEntrySkeleton,
+  NotebookEntriesListSkeleton
+} from './NotebookSkeleton'
+
 // Re-export types for convenience
 export type {
   Notebook,
   NotebookEntry,
   CreateNotebookInput,
-  CreateEntryInput
+  CreateEntryInput,
+  UpdateEntryInput
 } from '../../types/notebook'

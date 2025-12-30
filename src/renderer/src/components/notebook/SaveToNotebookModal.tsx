@@ -4,6 +4,8 @@
  * Modal for saving chat content to notebooks.
  * Allows selecting existing notebooks or creating new ones inline.
  *
+ * Phase 7: Added toast notifications, ARIA accessibility, and focus trapping.
+ *
  * Security: Content is sanitized through IPC boundary before storage.
  *
  * @module components/notebook/SaveToNotebookModal
@@ -12,7 +14,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X, Plus, BookOpen, Check, Loader2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { useNotebooks } from '../../hooks'
+import { useNotebooks, useFocusTrap } from '../../hooks'
+import { useNotificationContext } from '../../contexts'
 import type { Notebook } from '../../types/notebook'
 import { NOTEBOOK_EMOJIS } from '../../types/notebook'
 
@@ -34,6 +37,10 @@ export function SaveToNotebookModal({
   sourceRole
 }: SaveToNotebookModalProps) {
   const { notebooks, loading, createNotebook, createEntry } = useNotebooks()
+  const { success: toastSuccess, error: toastError } = useNotificationContext()
+
+  // Focus trap for accessibility
+  const modalRef = useFocusTrap<HTMLDivElement>(isOpen)
 
   // Selection state
   const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null)
@@ -72,6 +79,7 @@ export function SaveToNotebookModal({
 
     try {
       let targetNotebookId = selectedNotebookId
+      let targetNotebookName = ''
 
       // Create new notebook if needed
       if (isCreatingNew) {
@@ -85,6 +93,10 @@ export function SaveToNotebookModal({
           emoji: newNotebookEmoji
         })
         targetNotebookId = newNotebook.id
+        targetNotebookName = newNotebook.name
+      } else {
+        const notebook = notebooks.find((n) => n.id === selectedNotebookId)
+        targetNotebookName = notebook?.name || 'notebook'
       }
 
       if (!targetNotebookId) {
@@ -104,6 +116,7 @@ export function SaveToNotebookModal({
       })
 
       setSuccess(true)
+      toastSuccess(`Saved to ${targetNotebookName}`)
 
       // Close after showing success
       setTimeout(() => {
@@ -111,6 +124,7 @@ export function SaveToNotebookModal({
       }, 800)
     } catch (err) {
       console.error('[SaveToNotebookModal] Failed to save:', err)
+      toastError('Failed to save to notebook')
       setError('Failed to save. Please try again.')
     } finally {
       setSaving(false)
@@ -121,6 +135,7 @@ export function SaveToNotebookModal({
     isCreatingNew,
     newNotebookName,
     newNotebookEmoji,
+    notebooks,
     content,
     sourceMessageId,
     sourceConversationId,
@@ -128,7 +143,9 @@ export function SaveToNotebookModal({
     entryTitle,
     createNotebook,
     createEntry,
-    onClose
+    onClose,
+    toastSuccess,
+    toastError
   ])
 
   const canSave =
@@ -150,11 +167,15 @@ export function SaveToNotebookModal({
   return (
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="save-modal-title"
       onClick={(e) => {
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
       <div
+        ref={modalRef}
         className={cn(
           'bg-tertiary rounded-xl w-full max-w-md shadow-2xl',
           'border border-secondary/50',
@@ -165,19 +186,22 @@ export function SaveToNotebookModal({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-secondary/50">
           <div className="flex items-center gap-2">
-            <BookOpen size={20} className="text-amber-400" />
-            <h2 className="text-lg font-semibold text-white">Save to Notebook</h2>
+            <BookOpen size={20} className="text-amber-400" aria-hidden="true" />
+            <h2 id="save-modal-title" className="text-lg font-semibold text-white">
+              Save to Notebook
+            </h2>
           </div>
           <button
             onClick={onClose}
             disabled={saving}
+            aria-label="Close modal"
             className={cn(
               'p-1.5 rounded-lg text-text-muted',
               'hover:text-white hover:bg-secondary transition-colors',
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
           >
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
@@ -185,10 +209,16 @@ export function SaveToNotebookModal({
         <div className="p-4 space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
           {/* Content Preview */}
           <div>
-            <label className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
+            <label
+              id="content-preview-label"
+              className="text-xs text-text-muted uppercase tracking-wide mb-2 block"
+            >
               Content Preview
             </label>
-            <div className="bg-secondary/50 rounded-lg p-3 max-h-24 overflow-y-auto">
+            <div
+              className="bg-secondary/50 rounded-lg p-3 max-h-24 overflow-y-auto"
+              aria-labelledby="content-preview-label"
+            >
               <p className="text-sm text-text-normal whitespace-pre-wrap line-clamp-4">
                 {content.length > 300 ? content.slice(0, 300) + '...' : content}
               </p>
@@ -197,10 +227,14 @@ export function SaveToNotebookModal({
 
           {/* Optional Title */}
           <div>
-            <label className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
+            <label
+              htmlFor="entry-title-input"
+              className="text-xs text-text-muted uppercase tracking-wide mb-2 block"
+            >
               Title (Optional)
             </label>
             <input
+              id="entry-title-input"
               type="text"
               value={entryTitle}
               onChange={(e) => setEntryTitle(e.target.value)}
@@ -218,16 +252,17 @@ export function SaveToNotebookModal({
 
           {/* Notebook Selection */}
           <div>
-            <label className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
+            <span className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
               Select Notebook
-            </label>
+            </span>
 
             {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="animate-spin text-text-muted" size={24} />
+              <div className="flex items-center justify-center py-8" role="status">
+                <Loader2 className="animate-spin text-text-muted" size={24} aria-hidden="true" />
+                <span className="sr-only">Loading notebooks...</span>
               </div>
             ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-2 max-h-48 overflow-y-auto" role="listbox" aria-label="Available notebooks">
                 {/* Create New Option */}
                 <button
                   onClick={() => {
@@ -235,6 +270,8 @@ export function SaveToNotebookModal({
                     setSelectedNotebookId(null)
                   }}
                   disabled={saving || success}
+                  role="option"
+                  aria-selected={isCreatingNew}
                   className={cn(
                     'w-full flex items-center gap-3 p-3 rounded-lg transition-colors',
                     'border border-dashed',
@@ -253,6 +290,7 @@ export function SaveToNotebookModal({
                     <Plus
                       size={20}
                       className={isCreatingNew ? 'text-amber-400' : 'text-text-muted'}
+                      aria-hidden="true"
                     />
                   </div>
                   <div className="text-left">
@@ -271,13 +309,18 @@ export function SaveToNotebookModal({
                 {/* New notebook form */}
                 {isCreatingNew && (
                   <div className="pl-4 space-y-2">
+                    <label htmlFor="new-notebook-name" className="sr-only">
+                      New notebook name
+                    </label>
                     <input
+                      id="new-notebook-name"
                       type="text"
                       value={newNotebookName}
                       onChange={(e) => setNewNotebookName(e.target.value)}
                       placeholder="Enter notebook name..."
                       autoFocus
                       disabled={saving || success}
+                      aria-required="true"
                       className={cn(
                         'w-full px-3 py-2 rounded-lg',
                         'bg-secondary border border-amber-500/30',
@@ -287,12 +330,14 @@ export function SaveToNotebookModal({
                       )}
                     />
                     {/* Emoji picker */}
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1" role="group" aria-label="Choose notebook icon">
                       {NOTEBOOK_EMOJIS.slice(0, 12).map((emoji) => (
                         <button
                           key={emoji}
                           onClick={() => setNewNotebookEmoji(emoji)}
                           disabled={saving || success}
+                          aria-label={`Select ${emoji} icon`}
+                          aria-pressed={newNotebookEmoji === emoji}
                           className={cn(
                             'w-8 h-8 rounded flex items-center justify-center text-lg',
                             'transition-colors',
@@ -334,7 +379,12 @@ export function SaveToNotebookModal({
 
           {/* Error message */}
           {error && (
-            <div className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{error}</div>
+            <div
+              role="alert"
+              className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2"
+            >
+              {error}
+            </div>
           )}
         </div>
 
@@ -364,17 +414,17 @@ export function SaveToNotebookModal({
           >
             {saving ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
                 Saving...
               </>
             ) : success ? (
               <>
-                <Check size={16} />
+                <Check size={16} aria-hidden="true" />
                 Saved!
               </>
             ) : (
               <>
-                <BookOpen size={16} />
+                <BookOpen size={16} aria-hidden="true" />
                 Save
               </>
             )}
@@ -399,6 +449,8 @@ function NotebookOption({ notebook, selected, disabled, onSelect }: NotebookOpti
     <button
       onClick={onSelect}
       disabled={disabled}
+      role="option"
+      aria-selected={selected}
       className={cn(
         'w-full flex items-center gap-3 p-3 rounded-lg transition-colors',
         'border',
@@ -413,6 +465,7 @@ function NotebookOption({ notebook, selected, disabled, onSelect }: NotebookOpti
           'w-10 h-10 rounded-lg flex items-center justify-center text-xl',
           selected ? 'bg-amber-500/20' : 'bg-secondary'
         )}
+        aria-hidden="true"
       >
         {notebook.emoji}
       </div>
@@ -424,7 +477,7 @@ function NotebookOption({ notebook, selected, disabled, onSelect }: NotebookOpti
           {notebook.entry_count} {notebook.entry_count === 1 ? 'entry' : 'entries'}
         </p>
       </div>
-      {selected && <Check size={18} className="text-amber-400 shrink-0" />}
+      {selected && <Check size={18} className="text-amber-400 shrink-0" aria-hidden="true" />}
     </button>
   )
 }

@@ -3,12 +3,16 @@
  *
  * Modal for creating a new notebook with name, description, emoji, and color.
  *
+ * Phase 7: Added toast notifications, ARIA accessibility, and focus trapping.
+ *
  * @module components/notebook/CreateNotebookModal
  */
 
 import { useState, useEffect } from 'react'
 import { X, BookOpen, Loader2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useFocusTrap } from '../../hooks'
+import { useNotificationContext } from '../../contexts'
 import { NOTEBOOK_EMOJIS, NOTEBOOK_COLORS } from '../../types/notebook'
 
 interface CreateNotebookModalProps {
@@ -23,6 +27,11 @@ interface CreateNotebookModalProps {
 }
 
 export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNotebookModalProps) {
+  const { success: toastSuccess, error: toastError } = useNotificationContext()
+  
+  // Focus trap for accessibility
+  const modalRef = useFocusTrap<HTMLDivElement>(isOpen)
+  
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [emoji, setEmoji] = useState('📓')
@@ -55,7 +64,10 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
         emoji,
         color
       })
+      toastSuccess(`Created notebook "${name.trim()}"`)
     } catch (err) {
+      console.error('[CreateNotebookModal] Failed to create:', err)
+      toastError('Failed to create notebook')
       setError('Failed to create notebook')
     } finally {
       setIsSubmitting(false)
@@ -73,39 +85,55 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
     return () => window.removeEventListener('keydown', handleEsc)
   }, [isOpen, isSubmitting, onClose])
 
+  // Handle enter key for form submission
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && name.trim() && !isSubmitting) {
+      e.preventDefault()
+      handleSubmit()
+    }
+  }
+
   if (!isOpen) return null
 
   return (
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-modal-title"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isSubmitting) onClose()
       }}
     >
       <div
+        ref={modalRef}
         className={cn(
           'bg-tertiary rounded-xl w-full max-w-md shadow-2xl',
           'border border-secondary/50',
           'animate-in fade-in zoom-in-95 duration-200'
         )}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-secondary/50">
           <div className="flex items-center gap-2">
-            <BookOpen size={20} className="text-amber-400" />
-            <h2 className="text-lg font-semibold text-white">Create Notebook</h2>
+            <BookOpen size={20} className="text-amber-400" aria-hidden="true" />
+            <h2 id="create-modal-title" className="text-lg font-semibold text-white">
+              Create Notebook
+            </h2>
           </div>
           <button
             onClick={onClose}
             disabled={isSubmitting}
+            aria-label="Close modal"
             className={cn(
               'p-1.5 rounded-lg text-text-muted',
               'hover:text-white hover:bg-secondary transition-colors',
               'disabled:opacity-50'
             )}
           >
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
@@ -113,16 +141,23 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
         <div className="p-4 space-y-4">
           {/* Name */}
           <div>
-            <label className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
+            <label
+              htmlFor="notebook-name-input"
+              className="text-xs text-text-muted uppercase tracking-wide mb-2 block"
+            >
               Name *
             </label>
             <input
+              id="notebook-name-input"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My Notebook"
               autoFocus
               disabled={isSubmitting}
+              aria-required="true"
+              aria-invalid={!!error && !name.trim()}
+              aria-describedby={error && !name.trim() ? 'name-error' : undefined}
               className={cn(
                 'w-full px-3 py-2 rounded-lg',
                 'bg-secondary border border-secondary/50',
@@ -135,10 +170,14 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
 
           {/* Description */}
           <div>
-            <label className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
+            <label
+              htmlFor="notebook-description-input"
+              className="text-xs text-text-muted uppercase tracking-wide mb-2 block"
+            >
               Description (Optional)
             </label>
             <textarea
+              id="notebook-description-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this notebook for?"
@@ -156,15 +195,17 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
 
           {/* Emoji Picker */}
           <div>
-            <label className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
+            <span className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
               Icon
-            </label>
-            <div className="flex flex-wrap gap-1">
+            </span>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Choose notebook icon">
               {NOTEBOOK_EMOJIS.map((e) => (
                 <button
                   key={e}
                   onClick={() => setEmoji(e)}
                   disabled={isSubmitting}
+                  aria-label={`Select ${e} icon`}
+                  aria-pressed={emoji === e}
                   className={cn(
                     'w-9 h-9 rounded-lg flex items-center justify-center text-xl',
                     'transition-colors',
@@ -182,15 +223,17 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
 
           {/* Color Picker */}
           <div>
-            <label className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
+            <span className="text-xs text-text-muted uppercase tracking-wide mb-2 block">
               Color
-            </label>
-            <div className="flex flex-wrap gap-2">
+            </span>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Choose notebook color">
               {NOTEBOOK_COLORS.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => setColor(c.id)}
                   disabled={isSubmitting}
+                  aria-label={`Select ${c.name} color`}
+                  aria-pressed={color === c.id}
                   className={cn(
                     'w-8 h-8 rounded-lg border-2 transition-all',
                     c.class,
@@ -207,7 +250,11 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
 
           {/* Error */}
           {error && (
-            <div className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2">
+            <div
+              id="name-error"
+              role="alert"
+              className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2"
+            >
               {error}
             </div>
           )}
@@ -239,7 +286,7 @@ export function CreateNotebookModal({ isOpen, onClose, onSubmit }: CreateNoteboo
           >
             {isSubmitting ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
                 Creating...
               </>
             ) : (

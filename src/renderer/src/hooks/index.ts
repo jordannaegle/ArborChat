@@ -45,3 +45,10 @@ export type {
   UseNotebooksActions,
   UseNotebooksReturn
 } from './useNotebooks'
+
+// Notebook Keyboard Shortcuts (Phase 6)
+export { useNotebookShortcuts } from './useNotebookShortcuts'
+
+// Phase 7: Accessibility and Polish Utilities
+export { useFocusTrap } from './useFocusTrap'
+export { useDebounce } from './useDebounce'
