@@ -132,7 +132,7 @@ export function ToolsSection() {
           icon: Brain,
           enabled: status.config.servers.find((s) => s.name === 'memory')?.enabled ?? false,
           connected: status.connectionStatus['memory'] ?? false,
-          requiresConfig: false,
+          requiresConfig: true,
           configured: true,
           toolCount: 6
         }

@@ -147,6 +147,9 @@ function AppContent({ apiKey }: { apiKey: string }) {
   const [showWorkJournal, setShowWorkJournal] = useState(false)
   const [activeWorkSessionId, setActiveWorkSessionId] = useState<string | null>(null)
   
+  // Phase 5: Notebook panel state
+  const [isNotebookPanelOpen, setIsNotebookPanelOpen] = useState(false)
+  
   // Refs for continuation context
   const pendingContextRef = useRef<any[]>([])
   const pendingParentIdRef = useRef<string | null>(null)
@@ -654,6 +657,9 @@ function AppContent({ apiKey }: { apiKey: string }) {
         onAgentLaunch={handleAgentLaunch}
         // Phase 5: Session resumption
         onResumeSession={() => setShowResumeDialog(true)}
+        // Phase 5: Notebook panel
+        isNotebookPanelOpen={isNotebookPanelOpen}
+        onToggleNotebookPanel={() => setIsNotebookPanelOpen(prev => !prev)}
       />
       <SettingsPanel
         isOpen={isSettingsOpen}

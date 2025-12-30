@@ -1,15 +1,24 @@
 // src/renderer/src/components/agent/AgentPanel.tsx
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   X, Bot, Send, Pause, Play, AlertCircle,
   CheckCircle2, Loader2, Sparkles, User, Minimize2, Clock, RotateCcw
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { ModelSelector } from '../ModelSelector'
-import { ToolApprovalCard } from '../mcp'
+import { InlineToolCall } from '../mcp'
+import type { ToolCallStatus } from '../mcp'
 import { AgentStepTimeline } from './AgentStepTimeline'
-import type { Agent, AgentStatus } from '../../types/agent'
+import type { Agent, AgentStatus, AgentMessage, AgentStep } from '../../types/agent'
+
+// Timeline item types for unified agent rendering
+type AgentTimelineItem =
+  | { type: 'message'; data: AgentMessage; isStreaming: boolean }
+  | { type: 'tool_step'; data: AgentStep }
+  | { type: 'pending_tool'; data: NonNullable<Agent['pendingToolCall']> }
+  | { type: 'streaming_message'; content: string }
+  | { type: 'working_indicator' }
 
 interface AgentPanelProps {
   agent: Agent
@@ -26,6 +35,7 @@ interface AgentPanelProps {
   onClose: () => void
   onMinimize: () => void
   onToolApprove: (id: string, modifiedArgs?: Record<string, unknown>) => void
+  onToolAlwaysApprove?: (id: string, toolName: string, modifiedArgs?: Record<string, unknown>) => void
   onToolReject: (id: string) => void
 }
 
@@ -156,6 +166,7 @@ export function AgentPanel({
   onClose,
   onMinimize,
   onToolApprove,
+  onToolAlwaysApprove,
   onToolReject
 }: AgentPanelProps) {
   const [input, setInput] = useState('')
@@ -193,6 +204,67 @@ export function AgentPanel({
                          agent.status === 'failed'
   const isPaused = agent.status === 'paused'
   const isWorking = agent.status === 'running' || isStreaming
+
+  // Build unified timeline that interleaves messages and tool calls
+  const timeline = useMemo((): AgentTimelineItem[] => {
+    const items: AgentTimelineItem[] = []
+    const toolSteps = agent.steps.filter((s) => s.type === 'tool_call' && s.toolCall)
+    let toolStepIndex = 0
+    
+    // Interleave messages with tool steps based on timestamps
+    for (let i = 0; i < agent.messages.length; i++) {
+      const msg = agent.messages[i]
+      const msgTime = new Date(msg.timestamp).getTime()
+      const isLastMsg = i === agent.messages.length - 1
+      const isMsgStreaming = isStreaming && isLastMsg && msg.role === 'assistant'
+      
+      items.push({ type: 'message', data: msg, isStreaming: isMsgStreaming })
+      
+      // After each assistant message, add any tool steps that occurred before the next message
+      if (msg.role === 'assistant') {
+        const nextMsg = agent.messages[i + 1]
+        const nextMsgTime = nextMsg ? new Date(nextMsg.timestamp).getTime() : Infinity
+        
+        // Add tool steps that happened between this message and the next
+        while (toolStepIndex < toolSteps.length) {
+          const step = toolSteps[toolStepIndex]
+          if (step.timestamp > msgTime && step.timestamp <= nextMsgTime) {
+            items.push({ type: 'tool_step', data: step })
+            toolStepIndex++
+          } else if (step.timestamp <= msgTime) {
+            // Skip steps that are before this message (already processed)
+            toolStepIndex++
+          } else {
+            break
+          }
+        }
+      }
+    }
+    
+    // Add any remaining tool steps
+    while (toolStepIndex < toolSteps.length) {
+      items.push({ type: 'tool_step', data: toolSteps[toolStepIndex] })
+      toolStepIndex++
+    }
+    
+    // Add streaming message if there's new content not yet in messages
+    if (isStreaming && streamingContent && 
+        (!agent.messages.length || agent.messages[agent.messages.length - 1]?.role !== 'assistant')) {
+      items.push({ type: 'streaming_message', content: streamingContent })
+    }
+    
+    // Add pending tool call
+    if (agent.pendingToolCall) {
+      items.push({ type: 'pending_tool', data: agent.pendingToolCall })
+    }
+    
+    // Add working indicator when agent is running but no content yet
+    if (isWorking && !streamingContent && agent.messages.length > 0 && !agent.pendingToolCall) {
+      items.push({ type: 'working_indicator' })
+    }
+    
+    return items
+  }, [agent.messages, agent.steps, agent.pendingToolCall, isStreaming, streamingContent, isWorking])
 
   // Get context summary for display
   const contextSummary = agent.config.context.seedMessages.length > 0
@@ -328,16 +400,42 @@ export function AgentPanel({
             />
           )}
           
-          {/* Tool Approval Card */}
+          {/* Completed Tool Calls from steps - inline collapsible */}
+          {agent.steps
+            .filter((step) => step.type === 'tool_call' && step.toolCall)
+            .map((step) => (
+              <div key={step.id} className="px-3 py-1">
+                <InlineToolCall
+                  id={step.id}
+                  toolName={step.toolCall!.name}
+                  args={step.toolCall!.args}
+                  status={
+                    step.toolCall!.status === 'completed' ? 'completed' :
+                    step.toolCall!.status === 'failed' ? 'error' :
+                    step.toolCall!.status === 'pending' ? 'pending' :
+                    step.toolCall!.status === 'approved' ? 'executing' :
+                    'rejected' as ToolCallStatus
+                  }
+                  result={step.toolCall!.result}
+                  error={step.toolCall!.error}
+                  explanation={step.toolCall!.explanation}
+                  riskLevel="moderate"
+                />
+              </div>
+            ))}
+          
+          {/* Pending Tool Approval - inline collapsible */}
           {agent.pendingToolCall && (
-            <div className="px-3 py-2">
-              <ToolApprovalCard
+            <div className="px-3 py-1">
+              <InlineToolCall
                 id={agent.pendingToolCall.id}
                 toolName={agent.pendingToolCall.tool}
                 args={agent.pendingToolCall.args}
+                status="pending"
                 explanation={agent.pendingToolCall.explanation}
                 riskLevel="moderate"
                 onApprove={onToolApprove}
+                onAlwaysApprove={onToolAlwaysApprove}
                 onReject={onToolReject}
               />
             </div>

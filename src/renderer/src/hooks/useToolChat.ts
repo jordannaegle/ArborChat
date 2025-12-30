@@ -225,8 +225,8 @@ ${systemPrompt}`
 
     try {
       console.log('[useToolChat] Fetching memory context...')
-      // Use open_nodes to get all stored memory - this is a "safe" operation
-      const result = await executeTool('open_nodes', {}, 'Fetching user memory for session context')
+      // Use open_nodes to get all stored memory - pass empty names array to get all nodes
+      const result = await executeTool('open_nodes', { names: [] }, 'Fetching user memory for session context')
       
       if (result.success && result.result) {
         const memoryContent = typeof result.result === 'string' 

@@ -1,6 +1,7 @@
 import { Sidebar } from './Sidebar'
 import { ChatWindow } from './ChatWindow'
 import { ThreadPanel } from './ThreadPanel'
+import { NotebookSidebar } from './notebook'
 import { Conversation, Message } from '../types'
 import { Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -53,6 +54,10 @@ export interface LayoutProps {
   onAgentLaunch?: (messageContent: string) => void
   // Phase 5: Session resumption
   onResumeSession?: () => void
+  
+  // Notebook Props (Phase 5)
+  isNotebookPanelOpen?: boolean
+  onToggleNotebookPanel?: () => void
 }
 
 function LoadingState() {
@@ -128,7 +133,10 @@ export function Layout({
   // Agent Props (Phase 1)
   onAgentLaunch,
   // Phase 5: Session resumption
-  onResumeSession
+  onResumeSession,
+  // Notebook Props (Phase 5)
+  isNotebookPanelOpen = false,
+  onToggleNotebookPanel
 }: LayoutProps) {
   const isThreadOpen = !!rootMessage
 
@@ -148,6 +156,7 @@ export function Layout({
         onRename={onRenameConversation}
         onSettings={onSettings}
         onResumeSession={onResumeSession}
+        onOpenNotebooks={onToggleNotebookPanel}
       />
 
       {/* Main content area */}
@@ -219,6 +228,14 @@ export function Layout({
           </>
         )}
       </div>
+
+      {/* Notebook Panel */}
+      {onToggleNotebookPanel && (
+        <NotebookSidebar
+          isOpen={isNotebookPanelOpen}
+          onClose={onToggleNotebookPanel}
+        />
+      )}
     </div>
   )
 }

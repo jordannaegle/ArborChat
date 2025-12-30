@@ -1,4 +1,4 @@
-import { Plus, MessageSquare, Trash2, Settings, MessagesSquare, History } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, Settings, MessagesSquare, History, BookOpen } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '../lib/utils'
 import { Conversation } from '../types'
@@ -16,6 +16,8 @@ interface SidebarProps {
   onSettings: () => void
   // Phase 5: Session resumption
   onResumeSession?: () => void
+  // Phase 5: Notebooks panel
+  onOpenNotebooks?: () => void
 }
 
 function Logo() {
@@ -175,7 +177,8 @@ export function Sidebar({
   onDelete,
   onRename,
   onSettings,
-  onResumeSession
+  onResumeSession,
+  onOpenNotebooks
 }: SidebarProps) {
   // Get agent context for sidebar agent list
   const { 
@@ -266,6 +269,21 @@ export function Sidebar({
 
       {/* Footer with Settings */}
       <div className="p-2 border-t border-secondary/50 space-y-0.5">
+        {/* Notebooks Button */}
+        {onOpenNotebooks && (
+          <button
+            onClick={onOpenNotebooks}
+            className={cn(
+              'w-full flex items-center gap-2 p-2.5 rounded-lg',
+              'text-text-muted hover:text-amber-400 hover:bg-amber-500/10',
+              'transition-colors duration-150',
+              'focus:outline-none focus:ring-2 focus:ring-amber-500/30'
+            )}
+          >
+            <BookOpen size={16} />
+            <span className="text-sm font-medium">Notebooks</span>
+          </button>
+        )}
         {/* Phase 5: Resume Session Button */}
         {onResumeSession && (
           <button

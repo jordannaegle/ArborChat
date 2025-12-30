@@ -72,6 +72,16 @@ export function AgentPanelContainer({
     [approveTool]
   )
 
+  // Handle "always approve" - for agents, this just approves the current tool
+  // TODO: Could add persistent auto-approval settings per tool in agent config
+  const handleToolAlwaysApprove = useCallback(
+    async (id: string, toolName: string, modifiedArgs?: Record<string, unknown>) => {
+      console.log('[AgentPanelContainer] Tool always-approved:', id, toolName)
+      await approveTool(modifiedArgs)
+    },
+    [approveTool]
+  )
+
   // Handle tool rejection
   const handleToolReject = useCallback(
     (id: string) => {
@@ -125,6 +135,7 @@ export function AgentPanelContainer({
       onClose={handleClose}
       onMinimize={onMinimize}
       onToolApprove={handleToolApprove}
+      onToolAlwaysApprove={handleToolAlwaysApprove}
       onToolReject={handleToolReject}
     />
   )

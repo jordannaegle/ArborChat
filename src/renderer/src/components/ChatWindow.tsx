@@ -1,14 +1,21 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Send, MessageCircle, Sparkles, User, Loader2, X, Bot, AlertTriangle } from 'lucide-react'
 import { Message } from '../types'
 import { cn } from '../lib/utils'
 import { ModelSelector } from './ModelSelector'
-import { ToolApprovalCard, ToolResultCard, MemoryIndicator } from './mcp'
-import type { MemoryStatus } from './mcp'
+import { InlineToolCall, MemoryIndicator } from './mcp'
+import type { MemoryStatus, ToolCallStatus } from './mcp'
 import { SlashCommandMenu, MarkdownRenderer } from './chat'
 import { NotebookIcon, SaveToNotebookModal } from './notebook'
 import { useSlashCommands } from '../hooks'
 import type { PendingToolCall, ToolExecution } from '../hooks'
+
+// Timeline item types for unified rendering
+type TimelineItem =
+  | { type: 'message'; data: Message; isStreaming: boolean }
+  | { type: 'tool_execution'; data: ToolExecution }
+  | { type: 'pending_tool'; data: PendingToolCall }
+  | { type: 'typing_indicator' }
 
 // Tool risk levels (mirrored from main process for renderer use)
 const TOOL_RISK_LEVELS: Record<string, 'safe' | 'moderate' | 'dangerous'> = {
@@ -443,6 +450,63 @@ export function ChatWindow({
   const lastMessage = messages[messages.length - 1]
   const isLastMessageStreaming = pending && lastMessage?.role === 'assistant'
 
+  // Build unified timeline that interleaves messages and tool calls
+  // Tool calls appear after the assistant message that triggered them
+  const timeline = useMemo((): TimelineItem[] => {
+    const items: TimelineItem[] = []
+    
+    // Track which tool executions we've added
+    const usedToolExecIds = new Set<string>()
+    
+    // Add messages with tool executions interleaved
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i]
+      const isStreaming = isLastMessageStreaming && i === messages.length - 1
+      
+      items.push({ type: 'message', data: msg, isStreaming })
+      
+      // After an assistant message, add any completed tool executions
+      // Tool calls happen after the AI requests them (in an assistant message)
+      if (msg.role === 'assistant' && toolExecutions) {
+        // For simplicity, we distribute tool executions after assistant messages
+        // In a more sophisticated system, we'd track which message triggered which tool
+        const nextMsg = messages[i + 1]
+        const isLastAssistantBeforeUser = nextMsg?.role === 'user' || i === messages.length - 1
+        
+        if (isLastAssistantBeforeUser) {
+          // Add all unused tool executions after this assistant message
+          for (const exec of toolExecutions) {
+            if (!usedToolExecIds.has(exec.id)) {
+              items.push({ type: 'tool_execution', data: exec })
+              usedToolExecIds.add(exec.id)
+            }
+          }
+        }
+      }
+    }
+    
+    // If we have remaining tool executions (shouldn't happen normally), add them
+    if (toolExecutions) {
+      for (const exec of toolExecutions) {
+        if (!usedToolExecIds.has(exec.id)) {
+          items.push({ type: 'tool_execution', data: exec })
+        }
+      }
+    }
+    
+    // Add typing indicator when waiting for first response
+    if (pending && lastMessage?.role === 'user') {
+      items.push({ type: 'typing_indicator' })
+    }
+    
+    // Add pending tool call at the end
+    if (pendingToolCall) {
+      items.push({ type: 'pending_tool', data: pendingToolCall })
+    }
+    
+    return items
+  }, [messages, toolExecutions, pendingToolCall, pending, lastMessage, isLastMessageStreaming])
+
   return (
     <div
       className={cn(
@@ -482,65 +546,75 @@ export function ChatWindow({
         className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-secondary scrollbar-track-transparent"
         ref={scrollRef}
       >
-        {hasMessages ? (
+        {hasMessages || timeline.length > 0 ? (
           <div className="max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto py-4 px-4 space-y-1">
-            {messages.map((msg, index) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                onThreadSelect={onThreadSelect}
-                onAgentLaunch={onAgentLaunch}
-                conversationId={conversationId}
-                showThreadButton={!isThread}
-                isStreaming={isLastMessageStreaming && index === messages.length - 1}
-              />
-            ))}
-
-            {/* Typing indicator when waiting for response */}
-            {pending && lastMessage?.role === 'user' && (
-              <div className="flex gap-3 px-4 py-2 -mx-4">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-indigo-600 flex items-center justify-center ring-2 ring-offset-2 ring-offset-background ring-primary/30">
-                  <Sparkles size={16} className="text-white" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-primary">ArborChat</span>
-                  <div className="bg-secondary rounded-2xl rounded-tl-sm px-4 py-3 border border-tertiary">
-                    <TypingIndicator />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tool Approval Card - show when AI requests a tool */}
-            {pendingToolCall && onToolApprove && onToolReject && (
-              <div className="my-4">
-                <ToolApprovalCard
-                  id={pendingToolCall.id}
-                  toolName={pendingToolCall.tool}
-                  args={pendingToolCall.args}
-                  explanation={pendingToolCall.explanation}
-                  riskLevel={getToolRiskLevel(pendingToolCall.tool)}
-                  onApprove={onToolApprove}
-                  onAlwaysApprove={onToolAlwaysApprove}
-                  onReject={onToolReject}
-                />
-              </div>
-            )}
-
-            {/* Tool Results - show completed tool executions */}
-            {toolExecutions &&
-              toolExecutions
-                .filter((e) => e.status === 'completed' || e.status === 'error')
-                .map((exec) => (
-                  <ToolResultCard
-                    key={exec.id}
-                    toolName={exec.toolName}
-                    result={exec.result}
-                    error={exec.error}
-                    duration={exec.duration}
-                    autoApproved={exec.autoApproved}
-                  />
-                ))}
+            {timeline.map((item, index) => {
+              switch (item.type) {
+                case 'message':
+                  return (
+                    <MessageBubble
+                      key={item.data.id}
+                      message={item.data}
+                      onThreadSelect={onThreadSelect}
+                      onAgentLaunch={onAgentLaunch}
+                      conversationId={conversationId}
+                      showThreadButton={!isThread}
+                      isStreaming={item.isStreaming}
+                    />
+                  )
+                
+                case 'tool_execution':
+                  return (
+                    <InlineToolCall
+                      key={item.data.id}
+                      id={item.data.id}
+                      toolName={item.data.toolName}
+                      args={item.data.args}
+                      status={item.data.status as ToolCallStatus}
+                      result={item.data.result}
+                      error={item.data.error}
+                      duration={item.data.duration}
+                      autoApproved={item.data.autoApproved}
+                      explanation={item.data.explanation}
+                      riskLevel={getToolRiskLevel(item.data.toolName)}
+                    />
+                  )
+                
+                case 'pending_tool':
+                  return onToolApprove && onToolReject ? (
+                    <InlineToolCall
+                      key={`pending-${item.data.id}`}
+                      id={item.data.id}
+                      toolName={item.data.tool}
+                      args={item.data.args}
+                      status="pending"
+                      explanation={item.data.explanation}
+                      riskLevel={getToolRiskLevel(item.data.tool)}
+                      onApprove={onToolApprove}
+                      onAlwaysApprove={onToolAlwaysApprove}
+                      onReject={onToolReject}
+                    />
+                  ) : null
+                
+                case 'typing_indicator':
+                  return (
+                    <div key="typing" className="flex gap-3 px-4 py-2 -mx-4">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-indigo-600 flex items-center justify-center ring-2 ring-offset-2 ring-offset-background ring-primary/30">
+                        <Sparkles size={16} className="text-white" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-primary">ArborChat</span>
+                        <div className="bg-secondary rounded-2xl rounded-tl-sm px-4 py-3 border border-tertiary">
+                          <TypingIndicator />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                
+                default:
+                  return null
+              }
+            })}
           </div>
         ) : (
           <EmptyState />
