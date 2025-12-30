@@ -461,9 +461,9 @@ export function ChatWindow({
     // Add messages with tool executions interleaved
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]
-      const isStreaming = isLastMessageStreaming && i === messages.length - 1
+      const msgIsStreaming = !!(isLastMessageStreaming && i === messages.length - 1)
       
-      items.push({ type: 'message', data: msg, isStreaming })
+      items.push({ type: 'message', data: msg, isStreaming: msgIsStreaming })
       
       // After an assistant message, add any completed tool executions
       // Tool calls happen after the AI requests them (in an assistant message)
@@ -548,7 +548,7 @@ export function ChatWindow({
       >
         {hasMessages || timeline.length > 0 ? (
           <div className="max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto py-4 px-4 space-y-1">
-            {timeline.map((item, index) => {
+            {timeline.map((item) => {
               switch (item.type) {
                 case 'message':
                   return (

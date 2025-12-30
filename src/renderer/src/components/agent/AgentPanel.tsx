@@ -382,78 +382,85 @@ export function AgentPanel({
         ref={scrollRef}
       >
         <div className="py-3 space-y-1">
-          {agent.messages.map((msg, index) => (
-            <AgentMessageBubble
-              key={msg.id}
-              role={msg.role as 'user' | 'assistant'}
-              content={msg.content}
-              isStreaming={isStreaming && index === agent.messages.length - 1 && msg.role === 'assistant'}
-            />
-          ))}
-          
-          {/* Streaming message */}
-          {isStreaming && streamingContent && (
-            <AgentMessageBubble
-              role="assistant"
-              content={streamingContent}
-              isStreaming={true}
-            />
-          )}
-          
-          {/* Completed Tool Calls from steps - inline collapsible */}
-          {agent.steps
-            .filter((step) => step.type === 'tool_call' && step.toolCall)
-            .map((step) => (
-              <div key={step.id} className="px-3 py-1">
-                <InlineToolCall
-                  id={step.id}
-                  toolName={step.toolCall!.name}
-                  args={step.toolCall!.args}
-                  status={
-                    step.toolCall!.status === 'completed' ? 'completed' :
-                    step.toolCall!.status === 'failed' ? 'error' :
-                    step.toolCall!.status === 'pending' ? 'pending' :
-                    step.toolCall!.status === 'approved' ? 'executing' :
-                    'rejected' as ToolCallStatus
-                  }
-                  result={step.toolCall!.result}
-                  error={step.toolCall!.error}
-                  explanation={step.toolCall!.explanation}
-                  riskLevel="moderate"
-                />
-              </div>
-            ))}
-          
-          {/* Pending Tool Approval - inline collapsible */}
-          {agent.pendingToolCall && (
-            <div className="px-3 py-1">
-              <InlineToolCall
-                id={agent.pendingToolCall.id}
-                toolName={agent.pendingToolCall.tool}
-                args={agent.pendingToolCall.args}
-                status="pending"
-                explanation={agent.pendingToolCall.explanation}
-                riskLevel="moderate"
-                onApprove={onToolApprove}
-                onAlwaysApprove={onToolAlwaysApprove}
-                onReject={onToolReject}
-              />
-            </div>
-          )}
-          
-          {/* Working indicator when no streaming content yet */}
-          {isWorking && !streamingContent && agent.messages.length > 0 && (
-            <div className="flex gap-2 px-3 py-2">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-                <Bot size={14} className="text-white" />
-              </div>
-              <div className="flex items-center gap-1.5 bg-secondary/50 rounded-xl px-3 py-2 border border-tertiary/50">
-                <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" />
-              </div>
-            </div>
-          )}
+          {timeline.map((item) => {
+            switch (item.type) {
+              case 'message':
+                return (
+                  <AgentMessageBubble
+                    key={item.data.id}
+                    role={item.data.role as 'user' | 'assistant'}
+                    content={item.data.content}
+                    isStreaming={item.isStreaming}
+                  />
+                )
+              
+              case 'tool_step':
+                return (
+                  <div key={item.data.id} className="px-3 py-1">
+                    <InlineToolCall
+                      id={item.data.id}
+                      toolName={item.data.toolCall!.name}
+                      args={item.data.toolCall!.args}
+                      status={
+                        item.data.toolCall!.status === 'completed' ? 'completed' :
+                        item.data.toolCall!.status === 'failed' ? 'error' :
+                        item.data.toolCall!.status === 'pending' ? 'pending' :
+                        item.data.toolCall!.status === 'approved' ? 'executing' :
+                        'rejected' as ToolCallStatus
+                      }
+                      result={item.data.toolCall!.result}
+                      error={item.data.toolCall!.error}
+                      explanation={item.data.toolCall!.explanation}
+                      riskLevel="moderate"
+                    />
+                  </div>
+                )
+              
+              case 'pending_tool':
+                return (
+                  <div key={`pending-${item.data.id}`} className="px-3 py-1">
+                    <InlineToolCall
+                      id={item.data.id}
+                      toolName={item.data.tool}
+                      args={item.data.args}
+                      status="pending"
+                      explanation={item.data.explanation}
+                      riskLevel="moderate"
+                      onApprove={onToolApprove}
+                      onAlwaysApprove={onToolAlwaysApprove}
+                      onReject={onToolReject}
+                    />
+                  </div>
+                )
+              
+              case 'streaming_message':
+                return (
+                  <AgentMessageBubble
+                    key="streaming"
+                    role="assistant"
+                    content={item.content}
+                    isStreaming={true}
+                  />
+                )
+              
+              case 'working_indicator':
+                return (
+                  <div key="working" className="flex gap-2 px-3 py-2">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                      <Bot size={14} className="text-white" />
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-secondary/50 rounded-xl px-3 py-2 border border-tertiary/50">
+                      <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                      <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                      <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" />
+                    </div>
+                  </div>
+                )
+              
+              default:
+                return null
+            }
+          })}
         </div>
       </div>
 
