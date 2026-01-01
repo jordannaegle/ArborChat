@@ -874,6 +874,29 @@
   animation-delay: 2s;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   TRANSPARENT WRAPPER LAYERS - Let the cosmic background shine through
+   
+   The animated gradient is on <html>, but body and .bg-background elements
+   sit on top of it. We need to make them transparent so the stars show.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Make body transparent so html gradient shows through */
+[data-theme="celestial"] body {
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
+/* Make the main layout wrapper transparent */
+[data-theme="celestial"] .bg-background {
+  background-color: transparent !important;
+}
+
+/* Ensure #root doesn't block either */
+[data-theme="celestial"] #root {
+  background: transparent !important;
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
    EMBER THEME - Volcanic Magma Fissure Experience
@@ -1232,23 +1255,37 @@
   pointer-events: none;
 }
 
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TRANSPARENT APP WRAPPER FOR ANIMATED THEME BACKGROUNDS
+/* ─────────────────────────────────────────────────────────────────────────────
+   TRANSPARENT WRAPPER LAYERS - Let the volcanic background shine through
    
-   Themes like Celestial and Ember have layered gradient backgrounds applied
-   to the root <html> element. The main app wrapper needs to be transparent
-   so these beautiful backgrounds can show through.
-   ═══════════════════════════════════════════════════════════════════════════ */
+   The animated gradient is on <html>, but body and .bg-background elements
+   sit on top of it. We need to make them transparent so the fire shows.
+   ───────────────────────────────────────────────────────────────────────────── */
 
-/* Make the main Layout wrapper transparent for themes with animated backgrounds */
-[data-theme="celestial"] .bg-background {
+/* Make body transparent so html gradient shows through */
+[data-theme="ember"] body {
   background-color: transparent !important;
+  background: transparent !important;
 }
 
+/* Make the main layout wrapper transparent */
 [data-theme="ember"] .bg-background {
   background-color: transparent !important;
 }
+
+/* Ensure #root doesn't block either */
+[data-theme="ember"] #root {
+  background: transparent !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANIMATED THEME BACKGROUND COMPATIBILITY
+   
+   Themes like Celestial and Ember have layered gradient backgrounds applied
+   to the root <html> element. Specific surfaces should retain their colors
+   for proper visual hierarchy.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 /* Ensure specific surfaces still have their background colors */
 [data-theme="celestial"] .bg-secondary,
