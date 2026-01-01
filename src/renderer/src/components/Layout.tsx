@@ -1,11 +1,13 @@
 import { Sidebar } from './Sidebar'
 import { ChatWindow } from './ChatWindow'
 import { ThreadPanel } from './ThreadPanel'
+import { NotebookSidebar } from './notebook'
 import { Conversation, Message } from '../types'
 import { Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import logo from '../assets/logo.png'
 import type { PendingToolCall, ToolExecution } from '../hooks'
+import type { MemoryStatus } from './mcp'
 
 export interface LayoutProps {
   conversations: Conversation[]
@@ -38,6 +40,10 @@ export interface LayoutProps {
   ) => void
   onToolReject?: (id: string) => void
 
+  // Memory Props
+  memoryStatus?: MemoryStatus
+  memoryItemCount?: number
+
   // Persona Props (Phase 5)
   activePersonaId?: string | null
   activePersonaName?: string | null
@@ -46,6 +52,12 @@ export interface LayoutProps {
 
   // Agent Props (Phase 1)
   onAgentLaunch?: (messageContent: string) => void
+  // Phase 5: Session resumption
+  onResumeSession?: () => void
+  
+  // Notebook Props (Phase 5)
+  isNotebookPanelOpen?: boolean
+  onToggleNotebookPanel?: () => void
 }
 
 function LoadingState() {
@@ -104,19 +116,27 @@ export function Layout({
   onCloseThread,
   onSettings,
   // MCP Tool Props
-  mcpConnected: _mcpConnected,
+  mcpConnected,
   pendingToolCall,
   toolExecutions,
   onToolApprove,
   onToolAlwaysApprove,
   onToolReject,
+  // Memory Props
+  memoryStatus,
+  memoryItemCount,
   // Persona Props (Phase 5)
   activePersonaId,
   activePersonaName,
   onActivatePersona,
   onShowPersonaList,
   // Agent Props (Phase 1)
-  onAgentLaunch
+  onAgentLaunch,
+  // Phase 5: Session resumption
+  onResumeSession,
+  // Notebook Props (Phase 5)
+  isNotebookPanelOpen = false,
+  onToggleNotebookPanel
 }: LayoutProps) {
   const isThreadOpen = !!rootMessage
 
@@ -135,6 +155,8 @@ export function Layout({
         onDelete={onDeleteConversation}
         onRename={onRenameConversation}
         onSettings={onSettings}
+        onResumeSession={onResumeSession}
+        onOpenNotebooks={onToggleNotebookPanel}
       />
 
       {/* Main content area */}
@@ -156,11 +178,18 @@ export function Layout({
               threadTitle="Chat"
               selectedModel={selectedModel}
               onModelChange={onModelChange}
+              // Notebook Props
+              conversationId={activeId}
+              // MCP Tool Props
+              mcpConnected={mcpConnected}
               pendingToolCall={pendingToolCall}
               toolExecutions={toolExecutions}
               onToolApprove={onToolApprove}
               onToolAlwaysApprove={onToolAlwaysApprove}
               onToolReject={onToolReject}
+              // Memory Props
+              memoryStatus={memoryStatus}
+              memoryItemCount={memoryItemCount}
               // Persona Props (Phase 5)
               activePersonaId={activePersonaId}
               activePersonaName={activePersonaName}
@@ -199,6 +228,14 @@ export function Layout({
           </>
         )}
       </div>
+
+      {/* Notebook Panel */}
+      {onToggleNotebookPanel && (
+        <NotebookSidebar
+          isOpen={isNotebookPanelOpen}
+          onClose={onToggleNotebookPanel}
+        />
+      )}
     </div>
   )
 }

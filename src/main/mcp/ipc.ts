@@ -13,16 +13,21 @@ import {
 } from './config'
 import { getToolRiskLevel } from './servers/desktop-commander'
 import { getGitHubToolRiskLevel, GITHUB_MCP_CONFIG } from './servers/github'
-import { getSSHToolRiskLevel, SSH_MCP_CONFIG, buildSSHArgs } from './servers/ssh-mcp'
+import { getSSHToolRiskLevel, SSH_MCP_CONFIG, buildSSHArgs, getSSHServerName, isSSHServer } from './servers/ssh-mcp'
 import {
   saveGitHubToken,
   deleteGitHubToken,
   isGitHubConfigured,
-  saveSSHCredentials,
-  getSSHCredentials,
-  deleteSSHCredentials,
-  isSSHConfigured,
-  SSHCredentials
+  // SSH credentials types and functions
+  SSHCredentials,
+  SSHConnection,
+  getSSHConnections,
+  getSSHConnectionById,
+  getSSHConnectionByName,
+  addSSHConnection,
+  updateSSHConnection,
+  deleteSSHConnection,
+  hasSSHConnections
 } from './credentials'
 import {
   PendingToolCall,
@@ -31,6 +36,13 @@ import {
   GitHubStatus,
   GitHubConfigureResult
 } from './types'
+// Internal Arbor tools
+import {
+  isArborInternalTool,
+  getArborInternalTools,
+  executeArborMemoryTool
+} from './tools'
+import type { ArborMemoryToolParams } from './tools'
 
 // Pending tool calls awaiting user approval
 const pendingCalls = new Map<string, PendingToolCall>()
@@ -64,9 +76,17 @@ export function setupMCPHandlers(): void {
     }
   })
 
-  // Get available tools
+  // Get available tools (includes internal Arbor tools)
   ipcMain.handle('mcp:get-tools', async () => {
-    return mcpManager.getAvailableTools()
+    const mcpTools = mcpManager.getAvailableTools()
+    
+    // Add internal Arbor tools
+    const internalTools = getArborInternalTools().map(tool => ({
+      ...tool,
+      server: 'arbor' // Internal tools use 'arbor' as the server name
+    }))
+    
+    return [...internalTools, ...mcpTools]
   })
 
   // Get connection status
@@ -88,11 +108,58 @@ export function setupMCPHandlers(): void {
         args: Record<string, unknown>
         explanation?: string
         skipApproval?: boolean // Skip approval if frontend already approved
+        context?: { conversationId?: string; projectPath?: string } // Context for internal tools
       }
     ) => {
-      const { serverName, toolName, args, explanation, skipApproval } = request
+      const { serverName, toolName, args, explanation, skipApproval, context } = request
       const id = randomUUID()
       const config = mcpManager.getConfig()
+
+      // Check if tool is blocked
+      if (isToolBlocked(toolName, config)) {
+        return {
+          id,
+          success: false,
+          error: `Tool '${toolName}' is blocked by configuration`,
+          blocked: true
+        }
+      }
+
+      // Handle internal Arbor tools (always auto-approve, execute directly)
+      if (isArborInternalTool(toolName) || serverName === 'arbor') {
+        console.log(`[MCP IPC] Executing internal Arbor tool: ${toolName}`)
+        const startTime = Date.now()
+
+        try {
+          let result: unknown
+          
+          if (toolName === 'arbor_store_memory') {
+            result = await executeArborMemoryTool(
+              args as unknown as ArborMemoryToolParams,
+              context || {}
+            )
+          } else {
+            throw new Error(`Unknown internal tool: ${toolName}`)
+          }
+
+          return {
+            id,
+            success: true,
+            approved: true,
+            autoApproved: true,
+            result,
+            duration: Date.now() - startTime
+          }
+        } catch (error) {
+          return {
+            id,
+            success: false,
+            approved: true,
+            autoApproved: true,
+            error: String(error)
+          }
+        }
+      }
 
       // Check if tool is blocked
       if (isToolBlocked(toolName, config)) {
@@ -137,11 +204,13 @@ export function setupMCPHandlers(): void {
         case 'github':
           riskLevel = getGitHubToolRiskLevel(toolName)
           break
-        case 'ssh-mcp':
-          riskLevel = getSSHToolRiskLevel(toolName)
-          break
         default:
-          riskLevel = getToolRiskLevel(toolName)
+          // Check if it's an SSH server (ssh-{name} format)
+          if (isSSHServer(serverName)) {
+            riskLevel = getSSHToolRiskLevel(toolName)
+          } else {
+            riskLevel = getToolRiskLevel(toolName)
+          }
       }
       const win = BrowserWindow.fromWebContents(event.sender)
 
@@ -427,11 +496,20 @@ export function setupMCPHandlers(): void {
     return { success: true }
   })
 
-  // Get tool system prompt for AI context
-  ipcMain.handle('mcp:get-system-prompt', async () => {
-    const { generateToolSystemPrompt } = await import('./prompts')
-    const tools = mcpManager.getAvailableTools()
-    return generateToolSystemPrompt(tools)
+  // Get tool system prompt for AI context (includes internal Arbor tools)
+  // Enhanced with project intelligence when working directory is provided
+  ipcMain.handle('mcp:get-system-prompt', async (_event, workingDirectory?: string) => {
+    console.log('[MCP IPC] get-system-prompt called with workingDirectory:', workingDirectory)
+    const { generateEnhancedSystemPrompt } = await import('./prompts')
+    const mcpTools = mcpManager.getAvailableTools()
+    
+    // Add internal Arbor tools
+    const internalTools = getArborInternalTools().map(tool => ({
+      ...tool,
+      server: 'arbor'
+    }))
+    
+    return generateEnhancedSystemPrompt([...internalTools, ...mcpTools], workingDirectory)
   })
 
   // =====================
@@ -541,131 +619,331 @@ export function setupMCPHandlers(): void {
   })
 
   // =====================
-  // SSH-specific handlers
+  // SSH-specific handlers (Multi-connection support)
   // =====================
 
   /**
-   * Check if SSH is configured
+   * Check if any SSH connections are configured
    */
   ipcMain.handle('mcp:ssh:is-configured', async (): Promise<boolean> => {
-    return await isSSHConfigured()
+    return await hasSSHConnections()
   })
 
   /**
-   * Configure SSH with credentials
+   * Get all SSH connections
+   */
+  ipcMain.handle('mcp:ssh:list-connections', async (): Promise<SSHConnection[]> => {
+    return await getSSHConnections()
+  })
+
+  /**
+   * Get a single SSH connection by ID
+   */
+  ipcMain.handle('mcp:ssh:get-connection', async (_, id: string): Promise<SSHConnection | null> => {
+    return await getSSHConnectionById(id)
+  })
+
+  /**
+   * Add a new SSH connection
    */
   ipcMain.handle(
-    'mcp:ssh:configure',
-    async (_, creds: SSHCredentials): Promise<{ success: boolean; error?: string }> => {
+    'mcp:ssh:add-connection',
+    async (_, connection: Omit<SSHConnection, 'id' | 'createdAt'>): Promise<{ 
+      success: boolean
+      connection?: SSHConnection
+      error?: string 
+    }> => {
       try {
-        console.log('[MCP SSH] Configuring with credentials...')
-
-        // Save the credentials securely
-        await saveSSHCredentials(creds)
-
-        // Build the args for the SSH server
-        const sshArgs = buildSSHArgs({
-          host: creds.host,
-          port: creds.port,
-          user: creds.username,
-          password: creds.authType === 'password' ? creds.password : undefined,
-          key: creds.authType === 'key' ? creds.keyPath : undefined,
-          maxChars: 'none'
-        })
-
-        // Update config to enable SSH server with the new args
-        const config = loadMCPConfig()
-        const sshServer = config.servers.find((s) => s.name === 'ssh-mcp')
-        if (sshServer) {
-          sshServer.enabled = true
-          sshServer.args = sshArgs
-        } else {
-          // Add the server if it doesn't exist
-          config.servers.push({
-            ...SSH_MCP_CONFIG,
-            enabled: true,
-            args: sshArgs
-          })
+        console.log(`[MCP SSH] Adding connection: ${connection.name}`)
+        const newConnection = await addSSHConnection(connection)
+        
+        // If enabled, connect immediately
+        if (newConnection.enabled) {
+          await connectSSHServer(newConnection)
         }
-        saveMCPConfig(config)
-
-        // Disconnect existing SSH connection if any
-        if (mcpManager.isServerConnected('ssh-mcp')) {
-          await mcpManager.disconnectServer('ssh-mcp')
-        }
-
-        // Connect to the server with the new config
-        await mcpManager.connectServer({
-          ...SSH_MCP_CONFIG,
-          enabled: true,
-          args: sshArgs
-        })
-
-        const tools = mcpManager.getServerTools('ssh-mcp')
-        console.log(`[MCP SSH] Connected with ${tools.length} tools`)
-
-        return { success: true }
+        
+        return { success: true, connection: newConnection }
       } catch (error) {
-        console.error('[MCP SSH] Configuration failed:', error)
+        console.error('[MCP SSH] Add connection failed:', error)
         return { success: false, error: String(error) }
       }
     }
   )
 
   /**
-   * Disconnect SSH and remove credentials
+   * Update an existing SSH connection
+   */
+  ipcMain.handle(
+    'mcp:ssh:update-connection',
+    async (_, { id, updates }: { 
+      id: string
+      updates: Partial<Omit<SSHConnection, 'id' | 'createdAt'>> 
+    }): Promise<{ 
+      success: boolean
+      connection?: SSHConnection
+      error?: string 
+    }> => {
+      try {
+        const existingConnection = await getSSHConnectionById(id)
+        if (!existingConnection) {
+          return { success: false, error: 'Connection not found' }
+        }
+
+        console.log(`[MCP SSH] Updating connection: ${existingConnection.name}`)
+        
+        // Disconnect old server if name changed or connection details changed
+        const serverName = getSSHServerName(existingConnection.name)
+        if (mcpManager.isServerConnected(serverName)) {
+          await mcpManager.disconnectServer(serverName)
+        }
+        
+        const updatedConnection = await updateSSHConnection(id, updates)
+        if (!updatedConnection) {
+          return { success: false, error: 'Failed to update connection' }
+        }
+        
+        // Reconnect if enabled
+        if (updatedConnection.enabled) {
+          await connectSSHServer(updatedConnection)
+        }
+        
+        return { success: true, connection: updatedConnection }
+      } catch (error) {
+        console.error('[MCP SSH] Update connection failed:', error)
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  /**
+   * Delete an SSH connection
+   */
+  ipcMain.handle(
+    'mcp:ssh:delete-connection',
+    async (_, id: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const connection = await getSSHConnectionById(id)
+        if (!connection) {
+          return { success: false, error: 'Connection not found' }
+        }
+
+        console.log(`[MCP SSH] Deleting connection: ${connection.name}`)
+        
+        // Disconnect the server first
+        const serverName = getSSHServerName(connection.name)
+        if (mcpManager.isServerConnected(serverName)) {
+          await mcpManager.disconnectServer(serverName)
+        }
+        
+        const deleted = await deleteSSHConnection(id)
+        return { success: deleted }
+      } catch (error) {
+        console.error('[MCP SSH] Delete connection failed:', error)
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  /**
+   * Connect a specific SSH connection
+   */
+  ipcMain.handle(
+    'mcp:ssh:connect',
+    async (_, id: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const connection = await getSSHConnectionById(id)
+        if (!connection) {
+          return { success: false, error: 'Connection not found' }
+        }
+
+        await connectSSHServer(connection)
+        
+        // Update enabled status
+        await updateSSHConnection(id, { enabled: true })
+        
+        return { success: true }
+      } catch (error) {
+        console.error('[MCP SSH] Connect failed:', error)
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  /**
+   * Disconnect a specific SSH connection
+   */
+  ipcMain.handle(
+    'mcp:ssh:disconnect-connection',
+    async (_, id: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const connection = await getSSHConnectionById(id)
+        if (!connection) {
+          return { success: false, error: 'Connection not found' }
+        }
+
+        console.log(`[MCP SSH] Disconnecting: ${connection.name}`)
+        
+        const serverName = getSSHServerName(connection.name)
+        if (mcpManager.isServerConnected(serverName)) {
+          await mcpManager.disconnectServer(serverName)
+        }
+        
+        // Update enabled status
+        await updateSSHConnection(id, { enabled: false })
+        
+        return { success: true }
+      } catch (error) {
+        console.error('[MCP SSH] Disconnect failed:', error)
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  /**
+   * Get status of all SSH connections
+   */
+  ipcMain.handle('mcp:ssh:status', async (): Promise<{
+    connections: Array<{
+      id: string
+      name: string
+      host: string
+      username: string
+      isConnected: boolean
+      toolCount: number
+    }>
+  }> => {
+    const connections = await getSSHConnections()
+    
+    const connectionStatus = connections.map(conn => {
+      const serverName = getSSHServerName(conn.name)
+      const isConnected = mcpManager.isServerConnected(serverName)
+      const tools = mcpManager.getServerTools(serverName)
+      
+      return {
+        id: conn.id,
+        name: conn.name,
+        host: conn.host,
+        username: conn.username,
+        isConnected,
+        toolCount: tools.length
+      }
+    })
+    
+    return { connections: connectionStatus }
+  })
+
+  // Legacy handlers for backward compatibility
+  /**
+   * Configure SSH with credentials (legacy - creates a "Default" connection)
+   */
+  ipcMain.handle(
+    'mcp:ssh:configure',
+    async (_, creds: SSHCredentials): Promise<{ success: boolean; error?: string }> => {
+      try {
+        console.log('[MCP SSH] Legacy configure - creating Default connection')
+        
+        // Check if Default connection already exists
+        const existing = await getSSHConnectionByName('Default')
+        if (existing) {
+          // Update existing
+          await updateSSHConnection(existing.id, {
+            host: creds.host,
+            port: creds.port,
+            username: creds.username,
+            authType: creds.authType,
+            password: creds.password,
+            keyPath: creds.keyPath,
+            enabled: true
+          })
+          
+          // Reconnect
+          const serverName = getSSHServerName('Default')
+          if (mcpManager.isServerConnected(serverName)) {
+            await mcpManager.disconnectServer(serverName)
+          }
+          
+          const updatedConn = await getSSHConnectionByName('Default')
+          if (updatedConn) {
+            await connectSSHServer(updatedConn)
+          }
+        } else {
+          // Create new
+          const newConnection = await addSSHConnection({
+            name: 'Default',
+            host: creds.host,
+            port: creds.port,
+            username: creds.username,
+            authType: creds.authType,
+            password: creds.password,
+            keyPath: creds.keyPath,
+            enabled: true
+          })
+          
+          await connectSSHServer(newConnection)
+        }
+
+        return { success: true }
+      } catch (error) {
+        console.error('[MCP SSH] Legacy configure failed:', error)
+        return { success: false, error: String(error) }
+      }
+    }
+  )
+
+  /**
+   * Disconnect SSH (legacy - disconnects all)
    */
   ipcMain.handle('mcp:ssh:disconnect', async (): Promise<{ success: boolean }> => {
     try {
-      console.log('[MCP SSH] Disconnecting...')
-
-      // Delete the stored credentials
-      await deleteSSHCredentials()
-
-      // Disconnect the server
-      await mcpManager.disconnectServer('ssh-mcp')
-
-      // Update config to disable SSH server
-      const config = loadMCPConfig()
-      const sshServer = config.servers.find((s) => s.name === 'ssh-mcp')
-      if (sshServer) {
-        sshServer.enabled = false
+      console.log('[MCP SSH] Legacy disconnect - disconnecting all SSH connections')
+      
+      const connections = await getSSHConnections()
+      for (const conn of connections) {
+        const serverName = getSSHServerName(conn.name)
+        if (mcpManager.isServerConnected(serverName)) {
+          await mcpManager.disconnectServer(serverName)
+        }
+        await updateSSHConnection(conn.id, { enabled: false })
       }
-      saveMCPConfig(config)
-
-      console.log('[MCP SSH] Disconnected successfully')
+      
       return { success: true }
     } catch (error) {
-      console.error('[MCP SSH] Disconnect failed:', error)
+      console.error('[MCP SSH] Legacy disconnect failed:', error)
       return { success: false }
     }
   })
 
-  /**
-   * Get SSH connection status
-   */
-  ipcMain.handle('mcp:ssh:status', async (): Promise<{
-    isConfigured: boolean
-    isConnected: boolean
-    toolCount: number
-    host?: string
-    username?: string
-  }> => {
-    const configured = await isSSHConfigured()
-    const connected = mcpManager.isServerConnected('ssh-mcp')
-    const tools = mcpManager.getServerTools('ssh-mcp')
-    const creds = await getSSHCredentials()
+  console.log('[MCP IPC] Handlers ready')
+}
 
-    return {
-      isConfigured: configured,
-      isConnected: connected,
-      toolCount: tools.length,
-      host: creds?.host,
-      username: creds?.username
-    }
+/**
+ * Helper: Connect an SSH server for a connection
+ */
+async function connectSSHServer(connection: SSHConnection): Promise<void> {
+  const serverName = getSSHServerName(connection.name)
+  
+  // Build the args for the SSH server
+  const sshArgs = buildSSHArgs({
+    host: connection.host,
+    port: connection.port,
+    user: connection.username,
+    password: connection.authType === 'password' ? connection.password : undefined,
+    key: connection.authType === 'key' ? connection.keyPath : undefined,
+    maxChars: 'none'
   })
 
-  console.log('[MCP IPC] Handlers ready')
+  console.log(`[MCP SSH] Connecting server: ${serverName}`)
+  
+  // Connect to the server
+  await mcpManager.connectServer({
+    ...SSH_MCP_CONFIG,
+    name: serverName,
+    enabled: true,
+    args: sshArgs
+  })
+
+  const tools = mcpManager.getServerTools(serverName)
+  console.log(`[MCP SSH] ${serverName} connected with ${tools.length} tools`)
 }
 
 /**

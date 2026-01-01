@@ -14,7 +14,7 @@ export interface Conversation {
   updated_at: string
 }
 
-export type ModelProvider = 'gemini' | 'ollama' | 'anthropic'
+export type ModelProvider = 'gemini' | 'ollama' | 'anthropic' | 'github' | 'openai' | 'mistral'
 
 export interface Model {
   id: string
@@ -53,6 +53,36 @@ export const PROVIDERS: ProviderInfo[] = [
     placeholder: 'sk-ant-api...'
   },
   {
+    id: 'openai',
+    name: 'OpenAI',
+    icon: '🤖',
+    description: 'GPT-4.1, o3, o4 - Cutting-edge AI',
+    isLocal: false,
+    requiresApiKey: true,
+    helpUrl: 'https://platform.openai.com/api-keys',
+    placeholder: 'sk-...'
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral AI',
+    icon: '🌬️',
+    description: 'Mistral Large, Codestral - European AI excellence',
+    isLocal: false,
+    requiresApiKey: true,
+    helpUrl: 'https://console.mistral.ai/api-keys',
+    placeholder: 'sk-...'
+  },
+  {
+    id: 'github',
+    name: 'GitHub Copilot',
+    icon: '🐙',
+    description: 'GPT-4o, Llama, Mistral via GitHub Models',
+    isLocal: false,
+    requiresApiKey: true,
+    helpUrl: 'https://github.com/settings/tokens',
+    placeholder: 'ghp_...'
+  },
+  {
     id: 'gemini',
     name: 'Google Gemini',
     icon: '🔮',
@@ -88,6 +118,109 @@ export const ANTHROPIC_MODELS: Model[] = [
     name: 'Claude Sonnet 4.5',
     description: 'Balanced - Fast & capable',
     provider: 'anthropic',
+    isLocal: false
+  }
+]
+
+/**
+ * GitHub Copilot models (via GitHub Models API)
+ */
+export const GITHUB_COPILOT_MODELS: Model[] = [
+  {
+    id: 'github:openai/gpt-4o',
+    name: 'GPT-4o (GitHub)',
+    description: 'OpenAI GPT-4o via GitHub Models',
+    provider: 'github',
+    isLocal: false
+  },
+  {
+    id: 'github:openai/gpt-4o-mini',
+    name: 'GPT-4o Mini (GitHub)',
+    description: 'Fast & cost-effective via GitHub',
+    provider: 'github',
+    isLocal: false
+  },
+  {
+    id: 'github:openai/o1',
+    name: 'OpenAI o1 (GitHub)',
+    description: 'Advanced reasoning model',
+    provider: 'github',
+    isLocal: false
+  },
+  {
+    id: 'github:openai/o1-mini',
+    name: 'OpenAI o1-mini (GitHub)',
+    description: 'Fast reasoning model',
+    provider: 'github',
+    isLocal: false
+  },
+  {
+    id: 'github:meta/llama-3.3-70b-instruct',
+    name: 'Llama 3.3 70B (GitHub)',
+    description: 'Meta Llama 3.3 70B instruction-tuned',
+    provider: 'github',
+    isLocal: false
+  },
+  {
+    id: 'github:mistral-ai/mistral-large-2411',
+    name: 'Mistral Large (GitHub)',
+    description: 'Mistral AI flagship model',
+    provider: 'github',
+    isLocal: false
+  },
+  {
+    id: 'github:deepseek/deepseek-r1',
+    name: 'DeepSeek R1 (GitHub)',
+    description: 'Advanced reasoning model',
+    provider: 'github',
+    isLocal: false
+  }
+]
+
+/**
+ * Mistral AI models (direct API)
+ */
+export const MISTRAL_MODELS: Model[] = [
+  {
+    id: 'mistral-large-latest',
+    name: 'Mistral Large',
+    description: 'Flagship - Complex reasoning & analysis',
+    provider: 'mistral',
+    isLocal: false
+  },
+  {
+    id: 'mistral-medium-latest',
+    name: 'Mistral Medium',
+    description: 'Balanced - Cost-effective reasoning',
+    provider: 'mistral',
+    isLocal: false
+  },
+  {
+    id: 'mistral-small-latest',
+    name: 'Mistral Small',
+    description: 'Fast & efficient for simple tasks',
+    provider: 'mistral',
+    isLocal: false
+  },
+  {
+    id: 'codestral-latest',
+    name: 'Codestral',
+    description: 'Specialized for code generation',
+    provider: 'mistral',
+    isLocal: false
+  },
+  {
+    id: 'ministral-8b-latest',
+    name: 'Ministral 8B',
+    description: 'Compact model for edge deployment',
+    provider: 'mistral',
+    isLocal: false
+  },
+  {
+    id: 'pixtral-large-latest',
+    name: 'Pixtral Large',
+    description: 'Multimodal - Vision & text',
+    provider: 'mistral',
     isLocal: false
   }
 ]

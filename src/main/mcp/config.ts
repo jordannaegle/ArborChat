@@ -35,7 +35,11 @@ export const DEFAULT_MCP_CONFIG: MCPConfig = {
     FILESYSTEM_MCP_CONFIG,
     BRAVE_SEARCH_MCP_CONFIG,
     MEMORY_MCP_CONFIG
-  ]
+  ],
+  // Memory settings
+  memory: {
+    autoLoadOnSessionStart: true // Pre-fetch memory at start of new conversations
+  }
 }
 
 /**
@@ -76,7 +80,10 @@ export function loadMCPConfig(): MCPConfig {
           ...loaded.autoApprove
         },
         alwaysApproveTools: loaded.alwaysApproveTools || DEFAULT_MCP_CONFIG.alwaysApproveTools,
-        servers: mergedServers
+        servers: mergedServers,
+        memory: {
+          autoLoadOnSessionStart: loaded.memory?.autoLoadOnSessionStart ?? DEFAULT_MCP_CONFIG.memory!.autoLoadOnSessionStart
+        }
       }
     }
   } catch (error) {

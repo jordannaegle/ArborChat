@@ -21,8 +21,15 @@ import {
 import { getAllAvailableModels } from './models'
 import { OllamaProvider } from './providers/ollama'
 import { setupMCPHandlers, mcpManager } from './mcp'
+import { setupProjectAnalyzerHandlers } from './projectAnalyzer'
 import { setupPersonaHandlers } from './personas'
+import { setupNotificationHandlers, registerMainWindow } from './notifications'
+import { setupWorkJournalHandlers, cleanupWorkJournalSubscriptions } from './workJournal'
+import { setupNotebookHandlers } from './notebooks'
+import { setupMemoryHandlers, cleanupMemoryService } from './memory'
+import { getMemoryScheduler, tokenizer, countTokens, countTokensSync, truncateToTokens } from './services'
 import { credentialManager, ProviderId } from './credentials'
+import { getGitRepoInfo, getUncommittedFiles, getChangedFilesSinceBranch, getDiffStats, verifyChanges, getDiffSummary, isGitRepository, getDetailedStatus, commitChanges, getArborChatRoot } from './services'
 
 // Select the appropriate icon based on platform
 function getAppIcon(): string {
@@ -33,7 +40,7 @@ function getAppIcon(): string {
   return iconPng
 }
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
     width: 900,
@@ -63,6 +70,8 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  return mainWindow
 }
 
 // This method will be called when Electron has finished
@@ -104,6 +113,26 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:get-ollama-url', () => getOllamaServerUrl())
   ipcMain.handle('settings:set-ollama-url', (_, url) => setOllamaServerUrl(url))
 
+  // Tokenizer Handlers - accurate token counting for context management
+  ipcMain.handle('tokenizer:count', async (_event, text: string, modelId?: string): Promise<number> => {
+    return countTokens(text, modelId)
+  })
+
+  ipcMain.handle('tokenizer:countSync', (_event, text: string, modelId?: string): number => {
+    return countTokensSync(text, modelId)
+  })
+
+  ipcMain.handle(
+    'tokenizer:truncate',
+    async (_event, text: string, maxTokens: number, modelId?: string): Promise<string> => {
+      return truncateToTokens(text, maxTokens, modelId)
+    }
+  )
+
+  ipcMain.handle('tokenizer:stats', (): { loadedEncodings: string[]; initialized: boolean } => {
+    return tokenizer.getStats()
+  })
+
   // Dialog Handlers
   ipcMain.handle('dialog:select-directory', async () => {
     const result = await dialog.showOpenDialog({
@@ -111,6 +140,49 @@ app.whenReady().then(() => {
       title: 'Select Working Directory'
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  // Git Handlers
+  ipcMain.handle('git:get-repo-info', async (_, directory: string) => {
+    return getGitRepoInfo(directory)
+  })
+
+  ipcMain.handle('git:get-uncommitted-files', async (_, directory: string) => {
+    return getUncommittedFiles(directory)
+  })
+
+  ipcMain.handle('git:get-changed-files-since-branch', async (_, { directory, baseBranch }) => {
+    return getChangedFilesSinceBranch(directory, baseBranch)
+  })
+
+  ipcMain.handle('git:get-diff-stats', async (_, { directory, baseBranch }) => {
+    return getDiffStats(directory, baseBranch)
+  })
+
+  // Phase 3: Git Verification Handlers
+  ipcMain.handle('git:verify-changes', async (_, { workingDir, expectedFiles }) => {
+    return verifyChanges(workingDir, expectedFiles)
+  })
+
+  ipcMain.handle('git:get-diff-summary', async (_, { workingDir }) => {
+    return getDiffSummary(workingDir)
+  })
+
+  ipcMain.handle('git:is-repository', async (_, { workingDir }) => {
+    return isGitRepository(workingDir)
+  })
+
+  ipcMain.handle('git:get-detailed-status', async (_, { workingDir }) => {
+    return getDetailedStatus(workingDir)
+  })
+
+  // Git Commit Handler - for /commit slash command
+  ipcMain.handle('git:commit', async (_, { workingDir, message }) => {
+    return commitChanges(workingDir, message)
+  })
+
+  ipcMain.handle('git:get-arborchat-root', async () => {
+    return getArborChatRoot()
   })
 
   // Model Discovery Handlers
@@ -158,6 +230,18 @@ app.whenReady().then(() => {
       case 'anthropic': {
         const { AnthropicProvider } = await import('./providers/anthropic')
         return new AnthropicProvider().validateConnection(apiKey)
+      }
+      case 'openai': {
+        const { OpenAIProvider } = await import('./providers/openai')
+        return new OpenAIProvider().validateConnection(apiKey)
+      }
+      case 'github': {
+        const { GitHubCopilotProvider } = await import('./providers/github-copilot')
+        return new GitHubCopilotProvider().validateConnection(apiKey)
+      }
+      case 'mistral': {
+        const { MistralProvider } = await import('./providers/mistral')
+        return new MistralProvider().validateConnection(apiKey)
       }
       default:
         return false
@@ -291,13 +375,38 @@ app.whenReady().then(() => {
 
   initDB()
 
+  // Initialize tokenizer service for accurate token counting
+  tokenizer.init().catch(err => console.error('[Tokenizer] Init error:', err))
+
   // Setup MCP handlers for tool execution
   setupMCPHandlers()
+
+  // Setup Project Analyzer handlers for intelligent context injection
+  setupProjectAnalyzerHandlers()
 
   // Setup Persona handlers for AI personalities
   setupPersonaHandlers()
 
-  createWindow()
+  // Setup Notification handlers for desktop notifications
+  setupNotificationHandlers()
+
+  // Setup Work Journal handlers for agent work persistence
+  setupWorkJournalHandlers()
+
+  // Setup Notebook handlers for saving chat content
+  setupNotebookHandlers()
+
+  // Setup Arbor Memory handlers for native memory service
+  setupMemoryHandlers()
+
+  // Start memory decay scheduler (runs daily to maintain memory relevance)
+  const memoryScheduler = getMemoryScheduler()
+  memoryScheduler.start()
+
+  const mainWindow = createWindow()
+  
+  // Register main window with notification manager
+  registerMainWindow(mainWindow)
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
@@ -317,7 +426,14 @@ app.on('window-all-closed', () => {
 
 // Cleanup MCP connections before quitting
 app.on('before-quit', async () => {
-  console.log('[App] Cleaning up MCP connections...')
+  console.log('[App] Cleaning up...')
+  
+  // Stop memory scheduler
+  const memoryScheduler = getMemoryScheduler()
+  memoryScheduler.stop()
+  
+  cleanupWorkJournalSubscriptions()
+  cleanupMemoryService()
   await mcpManager.disconnectAll()
 })
 

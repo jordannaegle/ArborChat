@@ -5,8 +5,11 @@ import { MCPServerConfig } from '../types'
 /**
  * Memory MCP Server Configuration
  *
- * Provides persistent memory storage across conversations.
- * Enables AI to remember user preferences, facts, and context.
+ * DEPRECATED: ArborMemoryService is now the primary memory system.
+ * This MCP server is disabled by default. ArborMemoryService provides:
+ * - Automatic context injection at conversation start
+ * - arbor_store_memory tool for AI to persist information
+ * - Native SQLite storage with decay/cleanup scheduling
  *
  * No credentials required - memory is stored locally.
  */
@@ -15,7 +18,7 @@ export const MEMORY_MCP_CONFIG: MCPServerConfig = {
   // Uses npx to run without requiring global install
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-memory'],
-  enabled: true, // Enabled by default - no credentials needed
+  enabled: false, // DISABLED - ArborMemoryService is now the primary memory system
   env: {}
 }
 

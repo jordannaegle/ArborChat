@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect } from 'react'
-import { X, Brain, Trash2, Check, AlertCircle, RefreshCw, Database } from 'lucide-react'
+import { X, Brain, Trash2, Check, AlertCircle, RefreshCw, Database, Sparkles } from 'lucide-react'
 import { cn } from '../../../lib/utils'
+import { ToggleSwitch } from '../shared/ToggleSwitch'
 
 interface MemoryConfigModalProps {
   onClose: () => void
@@ -9,22 +10,60 @@ interface MemoryConfigModalProps {
 
 export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
   const [stats, setStats] = useState<{ count: number; size: number } | null>(null)
+  const [_detailedStats, setDetailedStats] = useState<{
+    totalMemories: number
+    byScope: Record<string, number>
+    byType: Record<string, number>
+    avgConfidence: number
+  } | null>(null)
+  void _detailedStats // Suppress unused variable warning - planned for future use
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [autoLoadEnabled, setAutoLoadEnabled] = useState(true)
 
   useEffect(() => {
     loadMemoryStats()
+    loadConfig()
   }, [])
+
+  const loadConfig = async () => {
+    try {
+      const config = await window.api.mcp.getConfig()
+      setAutoLoadEnabled(config.memory?.autoLoadOnSessionStart ?? true)
+    } catch (error) {
+      console.error('Failed to load memory config:', error)
+    }
+  }
 
   const loadMemoryStats = async () => {
     try {
-      const memoryStats = await window.api.mcp.memory.getStats()
-      setStats(memoryStats)
+      // Use ArborMemory API which queries the actual SQLite database
+      const arborStats = await window.api.arborMemory.getStats()
+      setDetailedStats(arborStats)
+      // Map to legacy format for UI compatibility
+      setStats({
+        count: arborStats.totalMemories,
+        // Estimate size: ~100 bytes per memory on average
+        size: arborStats.totalMemories * 100
+      })
     } catch (error) {
       console.error('Failed to load memory stats:', error)
       setError('Failed to load memory statistics')
+    }
+  }
+
+  const handleAutoLoadToggle = async (enabled: boolean) => {
+    setAutoLoadEnabled(enabled)
+    try {
+      await window.api.mcp.updateConfig({
+        memory: { autoLoadOnSessionStart: enabled }
+      })
+      onSave()
+    } catch (error) {
+      console.error('Failed to update memory config:', error)
+      setAutoLoadEnabled(!enabled) // Revert on failure
     }
   }
 
@@ -33,14 +72,15 @@ export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
     setError(null)
 
     try {
-      const result = await window.api.mcp.memory.clearAll()
+      // Use ArborMemory API to clear all memories
+      const result = await window.api.arborMemory.clearAll()
       if (result.success) {
         setSuccess(true)
         setShowClearConfirm(false)
         await loadMemoryStats()
         setTimeout(() => setSuccess(false), 3000)
       } else {
-        setError('Failed to clear memory')
+        setError(result.error || 'Failed to clear memory')
       }
     } catch (err) {
       setError('Failed to clear memory')
@@ -96,6 +136,27 @@ export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
             <p className="text-text-muted">
               <strong className="text-white">Note:</strong> Memory is stored locally on your device.
             </p>
+          </div>
+
+          {/* Auto-load Setting */}
+          <div className="p-4 bg-secondary/30 rounded-xl border border-secondary/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-violet-500/20 text-violet-400">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-white">Auto-load Memory</h3>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Automatically recall stored memories at the start of new conversations
+                  </p>
+                </div>
+              </div>
+              <ToggleSwitch
+                checked={autoLoadEnabled}
+                onChange={handleAutoLoadToggle}
+              />
+            </div>
           </div>
 
           <div className="p-4 bg-secondary/30 rounded-xl border border-secondary/50">

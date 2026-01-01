@@ -2,6 +2,9 @@ import { BrowserWindow } from 'electron'
 import { GeminiProvider } from './providers/gemini'
 import { OllamaProvider } from './providers/ollama'
 import { AnthropicProvider } from './providers/anthropic'
+import { GitHubCopilotProvider } from './providers/github-copilot'
+import { OpenAIProvider } from './providers/openai'
+import { MistralProvider } from './providers/mistral'
 import { AIProvider } from './providers/base'
 import { ChatMessage, StreamParams } from './providers/types'
 import { credentialManager, ProviderId } from './credentials'
@@ -12,12 +15,22 @@ const DEFAULT_MODEL = 'gemini-2.5-flash'
 const geminiProvider = new GeminiProvider()
 const ollamaProvider = new OllamaProvider()
 const anthropicProvider = new AnthropicProvider()
+const githubCopilotProvider = new GitHubCopilotProvider()
+const openaiProvider = new OpenAIProvider()
+const mistralProvider = new MistralProvider()
 
 /**
  * Provider registry for routing requests
- * Order matters - Anthropic is checked first for claude- prefix
+ * Order matters - check specific prefixes first
  */
-const providers: AIProvider[] = [anthropicProvider, geminiProvider, ollamaProvider]
+const providers: AIProvider[] = [
+  githubCopilotProvider, // Check first for github: prefix
+  openaiProvider,        // Check for gpt-* and o1/o3/o4 prefixes (before GitHub catches them)
+  anthropicProvider,     // Check for claude- prefix
+  mistralProvider,       // Check for mistral-*, codestral-*, ministral-*, pixtral-* prefixes
+  geminiProvider,
+  ollamaProvider
+]
 
 /**
  * Get the appropriate provider for a given model ID
@@ -37,8 +50,15 @@ function getProviderForModel(modelId: string): AIProvider {
  * Get the provider ID for automatic key injection
  */
 function getProviderIdFromModel(modelId: string): ProviderId | null {
+  if (modelId.startsWith('github:')) return 'github'
   if (modelId.startsWith('claude-')) return 'anthropic'
   if (modelId.startsWith('gemini-')) return 'gemini'
+  // Mistral models: mistral-*, codestral-*, ministral-*, pixtral-*
+  if (modelId.startsWith('mistral-') || modelId.startsWith('codestral-') || 
+      modelId.startsWith('ministral-') || modelId.startsWith('pixtral-')) return 'mistral'
+  // OpenAI models: gpt-*, o1*, o3*, o4*
+  if (modelId.startsWith('gpt-') || modelId.startsWith('o1') || 
+      modelId.startsWith('o3') || modelId.startsWith('o4')) return 'openai'
   if (modelId.includes(':')) return 'ollama' // Ollama models use format: model:tag
   return 'gemini' // Default fallback
 }

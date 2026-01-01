@@ -1,18 +1,9 @@
 // src/renderer/src/components/agent/AgentLaunchModal.tsx
 
 import { useState, useRef, useEffect } from 'react'
-import {
-  X,
-  Bot,
-  Rocket,
-  Sparkles,
-  FolderOpen,
-  Shield,
-  ShieldAlert,
-  ShieldCheck
-} from 'lucide-react'
+import { X, Bot, Rocket, Sparkles, FolderOpen, Shield, ShieldAlert, ShieldCheck, GitBranch, GitCommit, Files, Loader2, Settings2, History, Layers } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { AgentToolPermission, AgentTemplate } from '../../types/agent'
+import type { AgentToolPermission, AgentTemplate, GitScope, GitContext } from '../../types/agent'
 import { AgentTemplateSelector } from './AgentTemplateSelector'
 
 interface ContextSeedingOptions {
@@ -23,9 +14,28 @@ interface ContextSeedingOptions {
   includePersona: boolean
 }
 
+// Phase 4: Checkpoint summary for resumption
+interface CheckpointSummary {
+  sessionId: string
+  checkpointId: string
+  timestamp: number
+  summary: string
+  originalPrompt?: string
+}
+
+interface GitRepoInfo {
+  isGitRepo: boolean
+  repoRoot?: string
+  currentBranch?: string
+  branches?: string[]
+  hasUncommittedChanges?: boolean
+  uncommittedFileCount?: number
+  remoteUrl?: string
+}
+
 interface AgentLaunchModalProps {
   isOpen: boolean
-  rootContext?: string // The message that spawned this
+  rootContext?: string  // The message that spawned this
   hasActivePersona?: boolean
   personaName?: string
   onLaunch: (config: {
@@ -34,6 +44,12 @@ interface AgentLaunchModalProps {
     toolPermission: AgentToolPermission
     contextOptions: ContextSeedingOptions
     workingDirectory: string
+    gitContext?: GitContext
+    // Phase 4: Advanced capabilities
+    autoAnalyzeProject?: boolean
+    enableMultiFileOrchestration?: boolean
+    checkpointToRestore?: string
+    contextTokenBudget?: number
   }) => void
   onClose: () => void
 }
@@ -51,6 +67,20 @@ export function AgentLaunchModal({
   const [toolPermission, setToolPermission] = useState<AgentToolPermission>('standard')
   const [workingDirectory, setWorkingDirectory] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplate | null>(null)
+  
+  // Phase 4: Advanced capabilities state
+  const [autoAnalyzeProject, setAutoAnalyzeProject] = useState(true)
+  const [enableOrchestration, setEnableOrchestration] = useState(false)
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<string | null>(null)
+  const [availableCheckpoints, setAvailableCheckpoints] = useState<CheckpointSummary[]>([])
+  const [isLoadingCheckpoints, setIsLoadingCheckpoints] = useState(false)
+  
+  // Git detection state
+  const [gitRepoInfo, setGitRepoInfo] = useState<GitRepoInfo | null>(null)
+  const [gitScope, setGitScope] = useState<GitScope>('all')
+  const [gitBaseBranch, setGitBaseBranch] = useState<string>('main')
+  const [isDetectingGit, setIsDetectingGit] = useState(false)
+  
   // Context seeding options
   const [contextOptions, setContextOptions] = useState<ContextSeedingOptions>({
     includeCurrentMessage: true,
@@ -77,6 +107,14 @@ export function AgentLaunchModal({
       setToolPermission('standard')
       setSelectedTemplate(null)
       setWorkingDirectory('')
+      setGitRepoInfo(null)
+      setGitScope('all')
+      setGitBaseBranch('main')
+      // Phase 4: Reset advanced options
+      setAutoAnalyzeProject(true)
+      setEnableOrchestration(false)
+      setSelectedCheckpoint(null)
+      setAvailableCheckpoints([])
       setContextOptions({
         includeCurrentMessage: true,
         includeParentContext: true,
@@ -86,6 +124,70 @@ export function AgentLaunchModal({
       })
     }
   }, [isOpen, hasActivePersona])
+
+  // Phase 4: Load available checkpoints when modal opens
+  useEffect(() => {
+    const loadCheckpoints = async () => {
+      if (!isOpen) return
+      
+      setIsLoadingCheckpoints(true)
+      try {
+        const sessions = await window.api.workJournal.getResumableSessions(10)
+        const summaries: CheckpointSummary[] = []
+        
+        for (const session of sessions) {
+          const checkpoint = await window.api.workJournal.getLatestCheckpoint(session.id)
+          summaries.push({
+            sessionId: session.id,
+            checkpointId: checkpoint?.id || `session-${session.id}`,
+            timestamp: checkpoint?.createdAt || session.updatedAt,
+            summary: checkpoint?.summary || session.originalPrompt.slice(0, 80) + '...',
+            originalPrompt: session.originalPrompt
+          })
+        }
+        
+        setAvailableCheckpoints(summaries.sort((a, b) => b.timestamp - a.timestamp))
+      } catch (error) {
+        console.error('Failed to load checkpoints:', error)
+        setAvailableCheckpoints([])
+      } finally {
+        setIsLoadingCheckpoints(false)
+      }
+    }
+    
+    loadCheckpoints()
+  }, [isOpen])
+
+  // Detect git repo when working directory changes
+  useEffect(() => {
+    const detectGitRepo = async () => {
+      if (!workingDirectory.trim()) {
+        setGitRepoInfo(null)
+        return
+      }
+
+      setIsDetectingGit(true)
+      try {
+        const info = await window.api.git?.getRepoInfo(workingDirectory)
+        setGitRepoInfo(info || null)
+        
+        // Set default base branch if available
+        if (info?.branches?.length) {
+          const defaultBranch = info.branches.find(b => 
+            ['main', 'master', 'develop'].includes(b)
+          ) || info.branches[0]
+          setGitBaseBranch(defaultBranch)
+        }
+      } catch (error) {
+        console.error('Failed to detect git repo:', error)
+        setGitRepoInfo(null)
+      } finally {
+        setIsDetectingGit(false)
+      }
+    }
+
+    detectGitRepo()
+  }, [workingDirectory])
 
   // Handle template selection
   const handleSelectTemplate = (template: AgentTemplate | null) => {
@@ -105,12 +207,28 @@ export function AgentLaunchModal({
     e.preventDefault()
     if (!instructions.trim()) return
     if (directoryMissing) return
+    
+    // Build git context if in a git repo
+    const gitContext: GitContext | undefined = gitRepoInfo?.isGitRepo ? {
+      isGitRepo: true,
+      scope: gitScope,
+      baseBranch: gitScope === 'branch' ? gitBaseBranch : undefined,
+      currentBranch: gitRepoInfo.currentBranch,
+      uncommittedFileCount: gitRepoInfo.uncommittedFileCount
+    } : undefined
+
     onLaunch({
       instructions,
       name: agentName || undefined,
       toolPermission,
       contextOptions,
-      workingDirectory
+      workingDirectory,
+      gitContext,
+      // Phase 4: Advanced capabilities
+      autoAnalyzeProject: workingDirectory ? autoAnalyzeProject : false,
+      enableMultiFileOrchestration: enableOrchestration,
+      checkpointToRestore: selectedCheckpoint || undefined,
+      contextTokenBudget: selectedTemplate?.contextTokenBudget
     })
   }
 
@@ -129,7 +247,7 @@ export function AgentLaunchModal({
     key: K,
     value: ContextSeedingOptions[K]
   ) => {
-    setContextOptions((prev) => ({ ...prev, [key]: value }))
+    setContextOptions(prev => ({ ...prev, [key]: value }))
   }
 
   if (!isOpen) return null
@@ -137,18 +255,19 @@ export function AgentLaunchModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      
       {/* Modal */}
-      <div
-        className={cn(
-          'relative w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto',
-          'bg-gradient-to-b from-tertiary to-background',
-          'border border-violet-500/30 rounded-2xl',
-          'shadow-2xl shadow-violet-500/10',
-          'animate-in zoom-in-95 fade-in duration-200'
-        )}
-      >
+      <div className={cn(
+        'relative w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto',
+        'bg-gradient-to-b from-tertiary to-background',
+        'border border-violet-500/30 rounded-2xl',
+        'shadow-2xl shadow-violet-500/10',
+        'animate-in zoom-in-95 fade-in duration-200'
+      )}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-violet-500/20 sticky top-0 bg-tertiary/95 backdrop-blur-sm z-10">
           <div className="flex items-center gap-3">
@@ -157,9 +276,7 @@ export function AgentLaunchModal({
             </div>
             <div>
               <h2 className="text-lg font-semibold text-white">Launch Agent</h2>
-              <p className="text-xs text-text-muted">
-                Configure and spawn an autonomous coding agent
-              </p>
+              <p className="text-xs text-text-muted">Configure and spawn an autonomous coding agent</p>
             </div>
           </div>
           <button
@@ -270,9 +387,7 @@ export function AgentLaunchModal({
                 {contextOptions.includeParentContext && (
                   <select
                     value={contextOptions.parentContextDepth}
-                    onChange={(e) =>
-                      updateContextOption('parentContextDepth', parseInt(e.target.value))
-                    }
+                    onChange={(e) => updateContextOption('parentContextDepth', parseInt(e.target.value))}
                     className="bg-secondary/50 text-text-muted text-xs px-2 py-1 rounded border border-secondary/50 focus:outline-none focus:ring-1 focus:ring-violet-500/30"
                   >
                     <option value={1}>1 message</option>
@@ -306,8 +421,7 @@ export function AgentLaunchModal({
                     className="w-4 h-4 rounded border-secondary bg-secondary/50 text-violet-500 focus:ring-violet-500/30"
                   />
                   <span className="text-sm text-text-muted group-hover:text-text-normal transition-colors">
-                    Include active persona{' '}
-                    {personaName && <span className="text-violet-400">({personaName})</span>}
+                    Include active persona {personaName && <span className="text-violet-400">({personaName})</span>}
                   </span>
                 </label>
               )}
@@ -319,14 +433,12 @@ export function AgentLaunchModal({
             <label className="text-xs font-medium text-text-muted">Tool Permissions</label>
             <div className="space-y-2">
               {/* Standard */}
-              <label
-                className={cn(
-                  'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all',
-                  toolPermission === 'standard'
-                    ? 'border-violet-500/50 bg-violet-500/10'
-                    : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
-                )}
-              >
+              <label className={cn(
+                'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all',
+                toolPermission === 'standard'
+                  ? 'border-violet-500/50 bg-violet-500/10'
+                  : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
+              )}>
                 <input
                   type="radio"
                   name="toolPermission"
@@ -347,14 +459,12 @@ export function AgentLaunchModal({
               </label>
 
               {/* Restricted */}
-              <label
-                className={cn(
-                  'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all',
-                  toolPermission === 'restricted'
-                    ? 'border-violet-500/50 bg-violet-500/10'
-                    : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
-                )}
-              >
+              <label className={cn(
+                'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all',
+                toolPermission === 'restricted'
+                  ? 'border-violet-500/50 bg-violet-500/10'
+                  : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
+              )}>
                 <input
                   type="radio"
                   name="toolPermission"
@@ -375,14 +485,12 @@ export function AgentLaunchModal({
               </label>
 
               {/* Autonomous */}
-              <label
-                className={cn(
-                  'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all',
-                  toolPermission === 'autonomous'
-                    ? 'border-violet-500/50 bg-violet-500/10'
-                    : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
-                )}
-              >
+              <label className={cn(
+                'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all',
+                toolPermission === 'autonomous'
+                  ? 'border-violet-500/50 bg-violet-500/10'
+                  : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
+              )}>
                 <input
                   type="radio"
                   name="toolPermission"
@@ -448,6 +556,207 @@ export function AgentLaunchModal({
               </button>
             </div>
           </div>
+
+          {/* Git Scope Options (shown only when directory is a git repo) */}
+          {workingDirectory && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <GitBranch size={14} className={gitRepoInfo?.isGitRepo ? 'text-green-400' : 'text-text-muted'} />
+                <label className="text-xs font-medium text-text-muted">
+                  Git Repository
+                </label>
+                {isDetectingGit && (
+                  <Loader2 size={12} className="text-text-muted animate-spin" />
+                )}
+              </div>
+
+              {gitRepoInfo?.isGitRepo ? (
+                <div className="space-y-2 p-3 bg-green-500/5 rounded-lg border border-green-500/20">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-green-400">Git repository detected</span>
+                    <span className="text-text-muted">
+                      Branch: <span className="text-text-normal">{gitRepoInfo.currentBranch}</span>
+                    </span>
+                  </div>
+
+                  {gitRepoInfo.hasUncommittedChanges && (
+                    <p className="text-xs text-amber-400">
+                      {gitRepoInfo.uncommittedFileCount} uncommitted change{gitRepoInfo.uncommittedFileCount !== 1 ? 's' : ''}
+                    </p>
+                  )}
+
+                  <div className="space-y-2 mt-3">
+                    <label className="text-xs font-medium text-text-muted">Review Scope</label>
+                    
+                    {/* All files */}
+                    <label className={cn(
+                      'flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all',
+                      gitScope === 'all'
+                        ? 'border-green-500/50 bg-green-500/10'
+                        : 'border-secondary/50 bg-secondary/20 hover:border-secondary'
+                    )}>
+                      <input
+                        type="radio"
+                        name="gitScope"
+                        value="all"
+                        checked={gitScope === 'all'}
+                        onChange={() => setGitScope('all')}
+                        className="text-green-500 focus:ring-green-500/30"
+                      />
+                      <Files size={14} className="text-text-muted" />
+                      <span className="text-sm text-text-normal">All files</span>
+                    </label>
+
+                    {/* Uncommitted changes */}
+                    <label className={cn(
+                      'flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all',
+                      gitScope === 'uncommitted'
+                        ? 'border-green-500/50 bg-green-500/10'
+                        : 'border-secondary/50 bg-secondary/20 hover:border-secondary',
+                      !gitRepoInfo.hasUncommittedChanges && 'opacity-50 cursor-not-allowed'
+                    )}>
+                      <input
+                        type="radio"
+                        name="gitScope"
+                        value="uncommitted"
+                        checked={gitScope === 'uncommitted'}
+                        onChange={() => setGitScope('uncommitted')}
+                        disabled={!gitRepoInfo.hasUncommittedChanges}
+                        className="text-green-500 focus:ring-green-500/30"
+                      />
+                      <GitCommit size={14} className="text-text-muted" />
+                      <div className="flex-1">
+                        <span className="text-sm text-text-normal">Uncommitted changes only</span>
+                        {gitRepoInfo.hasUncommittedChanges && (
+                          <span className="text-xs text-text-muted ml-2">
+                            ({gitRepoInfo.uncommittedFileCount} file{gitRepoInfo.uncommittedFileCount !== 1 ? 's' : ''})
+                          </span>
+                        )}
+                      </div>
+                    </label>
+
+                    {/* Changes since branch */}
+                    <div className={cn(
+                      'p-2.5 rounded-lg border transition-all',
+                      gitScope === 'branch'
+                        ? 'border-green-500/50 bg-green-500/10'
+                        : 'border-secondary/50 bg-secondary/20'
+                    )}>
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="gitScope"
+                          value="branch"
+                          checked={gitScope === 'branch'}
+                          onChange={() => setGitScope('branch')}
+                          className="text-green-500 focus:ring-green-500/30"
+                        />
+                        <GitBranch size={14} className="text-text-muted" />
+                        <span className="text-sm text-text-normal">Changes since branch</span>
+                      </label>
+                      {gitScope === 'branch' && gitRepoInfo.branches && (
+                        <select
+                          value={gitBaseBranch}
+                          onChange={(e) => setGitBaseBranch(e.target.value)}
+                          className="mt-2 ml-7 bg-secondary/50 text-text-normal text-xs px-2 py-1.5 rounded border border-secondary/50 focus:outline-none focus:ring-1 focus:ring-green-500/30"
+                        >
+                          {gitRepoInfo.branches.map(branch => (
+                            <option key={branch} value={branch}>{branch}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : workingDirectory && !isDetectingGit ? (
+                <div className="p-3 bg-secondary/20 rounded-lg border border-secondary/30">
+                  <p className="text-xs text-text-muted">
+                    Not a git repository. The agent will review all files in the directory.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* Phase 4: Advanced Capabilities */}
+          {workingDirectory && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Settings2 size={14} className="text-violet-400" />
+                <label className="text-xs font-medium text-text-muted">
+                  Advanced Capabilities
+                </label>
+              </div>
+              
+              <div className="space-y-2 p-3 bg-violet-500/5 rounded-lg border border-violet-500/20">
+                {/* Auto-Analyze Project */}
+                <label className="flex items-center justify-between cursor-pointer group">
+                  <div className="flex items-center gap-2">
+                    <Layers size={14} className="text-text-muted" />
+                    <span className="text-sm text-text-muted group-hover:text-text-normal transition-colors">
+                      Auto-analyze project structure
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={autoAnalyzeProject}
+                    onChange={(e) => setAutoAnalyzeProject(e.target.checked)}
+                    className="w-4 h-4 rounded border-secondary bg-secondary/50 text-violet-500 focus:ring-violet-500/30"
+                  />
+                </label>
+                <p className="text-xs text-text-muted/70 ml-6">
+                  Detect project type, framework, and inject config context
+                </p>
+                
+                {/* Multi-File Orchestration */}
+                <label className="flex items-center justify-between cursor-pointer group mt-2">
+                  <div className="flex items-center gap-2">
+                    <Files size={14} className="text-text-muted" />
+                    <span className="text-sm text-text-muted group-hover:text-text-normal transition-colors">
+                      Enable multi-file orchestration
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={enableOrchestration}
+                    onChange={(e) => setEnableOrchestration(e.target.checked)}
+                    className="w-4 h-4 rounded border-secondary bg-secondary/50 text-violet-500 focus:ring-violet-500/30"
+                  />
+                </label>
+                <p className="text-xs text-text-muted/70 ml-6">
+                  Plan complex multi-file changes with dependency awareness
+                </p>
+                
+                {/* Resume Previous Session */}
+                {availableCheckpoints.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-violet-500/10">
+                    <label className="flex items-center gap-2 text-sm text-text-muted mb-2">
+                      <History size={14} />
+                      Resume previous session
+                    </label>
+                    <select
+                      value={selectedCheckpoint || ''}
+                      onChange={(e) => setSelectedCheckpoint(e.target.value || null)}
+                      className="w-full bg-secondary/50 text-text-normal text-sm px-3 py-2 rounded-lg border border-secondary/50 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                    >
+                      <option value="">Start fresh</option>
+                      {availableCheckpoints.map(cp => (
+                        <option key={cp.sessionId} value={cp.sessionId}>
+                          {new Date(cp.timestamp).toLocaleDateString()} - {cp.summary.slice(0, 40)}...
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {isLoadingCheckpoints && (
+                  <div className="flex items-center gap-2 text-xs text-text-muted mt-2">
+                    <Loader2 size={12} className="animate-spin" />
+                    Loading previous sessions...
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-secondary/30">

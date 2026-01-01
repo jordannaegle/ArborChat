@@ -40,10 +40,30 @@ export function ToolsSection() {
   const [configModal, setConfigModal] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState<string | null>(null)
   const [mcpEnabled, setMcpEnabled] = useState(true)
+  const [aiSummarizationEnabled, setAiSummarizationEnabled] = useState(true)
 
   useEffect(() => {
     loadServerStatus()
+    loadAISummarizationStatus()
   }, [])
+
+  const loadAISummarizationStatus = async () => {
+    try {
+      const status = await window.api.workJournal.getAISummarizationStatus()
+      setAiSummarizationEnabled(status.enabled)
+    } catch (error) {
+      console.error('Failed to load AI summarization status:', error)
+    }
+  }
+
+  const handleAISummarizationToggle = async (enabled: boolean) => {
+    try {
+      await window.api.workJournal.setAISummarizationEnabled(enabled)
+      setAiSummarizationEnabled(enabled)
+    } catch (error) {
+      console.error('Failed to toggle AI summarization:', error)
+    }
+  }
 
   const loadServerStatus = async () => {
     setLoading(true)
@@ -55,6 +75,12 @@ export function ToolsSection() {
       ])
 
       setMcpEnabled(status.config.enabled)
+
+      // Calculate SSH status from connections array
+      const sshConnections = sshStatus.connections || []
+      const sshIsConfigured = sshConnections.length > 0
+      const sshIsConnected = sshConnections.some(c => c.isConnected)
+      const sshToolCount = sshConnections.reduce((total, c) => total + c.toolCount, 0)
 
       const serverList: MCPServer[] = [
         {
@@ -86,13 +112,13 @@ export function ToolsSection() {
           id: 'ssh-mcp',
           name: 'ssh-mcp',
           displayName: 'SSH Remote',
-          description: 'Execute commands on remote servers via SSH',
+          description: `Execute commands on remote servers via SSH${sshConnections.length > 0 ? ` (${sshConnections.length} connection${sshConnections.length !== 1 ? 's' : ''})` : ''}`,
           icon: Server,
-          enabled: status.config.servers.find(s => s.name === 'ssh-mcp')?.enabled ?? false,
-          connected: sshStatus.isConnected,
+          enabled: sshConnections.some(c => c.isConnected) || (status.config.servers.find(s => s.name === 'ssh-mcp')?.enabled ?? false),
+          connected: sshIsConnected,
           requiresConfig: true,
-          configured: sshStatus.isConfigured,
-          toolCount: sshStatus.toolCount
+          configured: sshIsConfigured,
+          toolCount: sshToolCount
         },
         {
           id: 'filesystem',
@@ -126,7 +152,7 @@ export function ToolsSection() {
           icon: Brain,
           enabled: status.config.servers.find((s) => s.name === 'memory')?.enabled ?? false,
           connected: status.connectionStatus['memory'] ?? false,
-          requiresConfig: false,
+          requiresConfig: true,
           configured: true,
           toolCount: 6
         }
@@ -212,6 +238,17 @@ export function ToolsSection() {
           <p className="text-xs text-text-muted">Master switch for all tool integrations</p>
         </div>
         <ToggleSwitch checked={mcpEnabled} onChange={handleToggleMCP} />
+      </div>
+
+      {/* AI Summarization Toggle */}
+      <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-xl border border-secondary/50">
+        <div>
+          <h3 className="font-medium text-white">AI-Powered Summaries</h3>
+          <p className="text-xs text-text-muted">
+            Use AI to generate coherent checkpoint summaries for agent sessions (uses API credits)
+          </p>
+        </div>
+        <ToggleSwitch checked={aiSummarizationEnabled} onChange={handleAISummarizationToggle} />
       </div>
 
       {/* Server List */}

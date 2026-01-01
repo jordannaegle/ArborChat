@@ -2,6 +2,9 @@ import { AIModel } from './providers/types'
 import { GeminiProvider } from './providers/gemini'
 import { OllamaProvider } from './providers/ollama'
 import { AnthropicProvider } from './providers/anthropic'
+import { GitHubCopilotProvider } from './providers/github-copilot'
+import { OpenAIProvider } from './providers/openai'
+import { MistralProvider } from './providers/mistral'
 
 /**
  * Model discovery and management service
@@ -53,6 +56,30 @@ export async function getOllamaModels(ollamaUrl?: string): Promise<AIModel[]> {
 }
 
 /**
+ * Get all GitHub Copilot models (static list)
+ */
+export async function getGitHubCopilotModels(): Promise<AIModel[]> {
+  const githubCopilotProvider = new GitHubCopilotProvider()
+  return githubCopilotProvider.getAvailableModels()
+}
+
+/**
+ * Get all OpenAI models (static list)
+ */
+export async function getOpenAIModels(): Promise<AIModel[]> {
+  const openaiProvider = new OpenAIProvider()
+  return openaiProvider.getAvailableModels()
+}
+
+/**
+ * Get all Mistral AI models (static list)
+ */
+export async function getMistralModels(): Promise<AIModel[]> {
+  const mistralProvider = new MistralProvider()
+  return mistralProvider.getAvailableModels()
+}
+
+/**
  * Get all available models from all providers
  */
 export async function getAllAvailableModels(
@@ -61,18 +88,24 @@ export async function getAllAvailableModels(
 ): Promise<AIModel[]> {
   console.log('[Models] Fetching all available models')
 
-  const [anthropicModels, geminiModels, ollamaModels] = await Promise.all([
+  const [anthropicModels, openaiModels, mistralModels, geminiModels, githubCopilotModels, ollamaModels] = await Promise.all([
     getAnthropicModels(),
+    getOpenAIModels(),
+    getMistralModels(),
     getGeminiModels(apiKey),
+    getGitHubCopilotModels(),
     getOllamaModels(ollamaUrl)
   ])
 
   console.log('[Models] Found', anthropicModels.length, 'Anthropic models')
+  console.log('[Models] Found', openaiModels.length, 'OpenAI models')
+  console.log('[Models] Found', mistralModels.length, 'Mistral models')
   console.log('[Models] Found', geminiModels.length, 'Gemini models')
+  console.log('[Models] Found', githubCopilotModels.length, 'GitHub Copilot models')
   console.log('[Models] Found', ollamaModels.length, 'Ollama models')
 
-  // Anthropic first to prioritize in model selector
-  return [...anthropicModels, ...geminiModels, ...ollamaModels]
+  // Order: Anthropic, OpenAI, Mistral, GitHub Copilot, Gemini, Ollama
+  return [...anthropicModels, ...openaiModels, ...mistralModels, ...githubCopilotModels, ...geminiModels, ...ollamaModels]
 }
 
 /**

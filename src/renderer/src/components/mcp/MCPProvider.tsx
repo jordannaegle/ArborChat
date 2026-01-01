@@ -1,6 +1,8 @@
 // src/renderer/src/components/mcp/MCPProvider.tsx
+// Phase 6.5: Memory Cleanup & Resource Management
+// Author: Alex Chen (Distinguished Software Architect)
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import type {
   MCPToolDefinition,
   MCPApprovalRequest,
@@ -21,7 +23,7 @@ interface MCPContextValue {
   // Actions
   initialize: () => Promise<void>
   reconnect: () => Promise<void>
-  getSystemPrompt: () => Promise<string>
+  getSystemPrompt: (workingDirectory?: string) => Promise<string>
   requestTool: (
     toolName: string,
     args: Record<string, unknown>,
@@ -32,6 +34,10 @@ interface MCPContextValue {
   alwaysApprove: (id: string, modifiedArgs?: Record<string, unknown>) => Promise<MCPToolResult>
   reject: (id: string) => Promise<void>
   updateConfig: (updates: Partial<MCPConfig>) => Promise<void>
+
+  // Phase 6.5: Agent cleanup support
+  clearAgentApprovals: (agentId: string) => void
+  registerApprovalForAgent: (approvalId: string, agentId: string) => void
 }
 
 const MCPContext = createContext<MCPContextValue | null>(null)
@@ -58,6 +64,9 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
   const [error, setError] = useState<string | null>(null)
   const [systemPrompt, setSystemPrompt] = useState<string>('')
 
+  // Phase 6.5: Track which agent each approval belongs to
+  const approvalAgentMapRef = useRef<Map<string, string>>(new Map())
+
   // Initialize MCP
   const initialize = useCallback(async () => {
     try {
@@ -65,12 +74,18 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
       setError(null)
 
       const result = await window.api.mcp.init()
+      console.log('[MCP Provider] Init result:', {
+        success: result.success,
+        toolCount: result.tools?.length || 0,
+        connectionStatus: result.connectionStatus
+      })
 
       if (result.success) {
         setTools(result.tools || [])
-        setConnected(Object.values(result.connectionStatus || {}).some(Boolean))
+        const isConnected = Object.values(result.connectionStatus || {}).some(Boolean)
+        setConnected(isConnected)
         setInitialized(true)
-        console.log('[MCP Provider] Initialized with', result.tools?.length, 'tools')
+        console.log('[MCP Provider] Initialized with', result.tools?.length, 'tools, connected:', isConnected)
 
         // Load config
         const configResult = await window.api.mcp.getConfig()
@@ -78,6 +93,15 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
 
         // Load system prompt
         const prompt = await window.api.mcp.getSystemPrompt()
+        console.log('[MCP Provider] System prompt loaded, length:', prompt?.length || 0)
+        if (!prompt) {
+          console.warn('[MCP Provider] WARNING: System prompt is empty! Tools will not be available to AI.')
+        } else if (!prompt.includes('ArborChat Tool Integration')) {
+          console.warn('[MCP Provider] WARNING: System prompt missing tool integration header!')
+          console.warn('[MCP Provider] Prompt preview:', prompt.substring(0, 200))
+        } else {
+          console.log('[MCP Provider] ✅ System prompt contains tool instructions')
+        }
         setSystemPrompt(prompt)
       } else {
         setError(result.error || 'Failed to initialize MCP')
@@ -107,9 +131,9 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
     }
   }, [])
 
-  // Get system prompt (refreshes from server)
-  const getSystemPrompt = useCallback(async (): Promise<string> => {
-    const prompt = await window.api.mcp.getSystemPrompt()
+  // Get system prompt (refreshes from server, optionally with project context)
+  const getSystemPrompt = useCallback(async (workingDirectory?: string): Promise<string> => {
+    const prompt = await window.api.mcp.getSystemPrompt(workingDirectory)
     setSystemPrompt(prompt)
     return prompt
   }, [])
@@ -135,8 +159,9 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
   const approve = useCallback(
     async (id: string, modifiedArgs?: Record<string, unknown>): Promise<MCPToolResult> => {
       const result = await window.api.mcp.approve(id, modifiedArgs)
-      // Remove from pending
+      // Remove from pending and agent map
       setPendingApprovals((prev) => prev.filter((p) => p.id !== id))
+      approvalAgentMapRef.current.delete(id)
       return result
     },
     []
@@ -146,8 +171,9 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
   const alwaysApprove = useCallback(
     async (id: string, modifiedArgs?: Record<string, unknown>): Promise<MCPToolResult> => {
       const result = await window.api.mcp.alwaysApprove(id, modifiedArgs)
-      // Remove from pending
+      // Remove from pending and agent map
       setPendingApprovals((prev) => prev.filter((p) => p.id !== id))
+      approvalAgentMapRef.current.delete(id)
       return result
     },
     []
@@ -157,12 +183,48 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
   const reject = useCallback(async (id: string): Promise<void> => {
     await window.api.mcp.reject(id)
     setPendingApprovals((prev) => prev.filter((p) => p.id !== id))
+    approvalAgentMapRef.current.delete(id)
   }, [])
 
   // Update config
   const updateConfig = useCallback(async (updates: Partial<MCPConfig>): Promise<void> => {
     const updated = await window.api.mcp.updateConfig(updates)
     setConfig(updated)
+  }, [])
+
+  // Phase 6.5: Register an approval as belonging to an agent
+  const registerApprovalForAgent = useCallback((approvalId: string, agentId: string) => {
+    approvalAgentMapRef.current.set(approvalId, agentId)
+    console.log(`[MCP Provider] Registered approval ${approvalId} for agent ${agentId}`)
+  }, [])
+
+  // Phase 6.5: Clear all pending approvals for a specific agent
+  const clearAgentApprovals = useCallback((agentId: string) => {
+    console.log(`[MCP Provider] Clearing approvals for agent ${agentId}`)
+    
+    // Find all approval IDs for this agent
+    const approvalIdsToRemove: string[] = []
+    approvalAgentMapRef.current.forEach((agent, approvalId) => {
+      if (agent === agentId) {
+        approvalIdsToRemove.push(approvalId)
+      }
+    })
+
+    if (approvalIdsToRemove.length > 0) {
+      // Remove from state
+      setPendingApprovals((prev) => 
+        prev.filter((p) => !approvalIdsToRemove.includes(p.id))
+      )
+      
+      // Clean up map
+      approvalIdsToRemove.forEach((id) => {
+        approvalAgentMapRef.current.delete(id)
+        // Also reject on backend to prevent orphaned pending calls
+        window.api.mcp.reject(id).catch(console.error)
+      })
+      
+      console.log(`[MCP Provider] Cleared ${approvalIdsToRemove.length} approvals for agent ${agentId}`)
+    }
   }, [])
 
   // Setup event listeners
@@ -176,11 +238,13 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
       console.log('[MCP Provider] Tool completed:', data)
       // Remove from pending if it was there
       setPendingApprovals((prev) => prev.filter((p) => p.id !== data.id))
+      approvalAgentMapRef.current.delete(data.id)
     })
 
     const cleanupRejected = window.api.mcp.onToolRejected((data) => {
       console.log('[MCP Provider] Tool rejected:', data)
       setPendingApprovals((prev) => prev.filter((p) => p.id !== data.id))
+      approvalAgentMapRef.current.delete(data.id)
     })
 
     const cleanupConfigUpdated = window.api.mcp.onConfigUpdated((updatedConfig) => {
@@ -207,6 +271,8 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
   useEffect(() => {
     return () => {
       window.api.mcp.removeAllListeners()
+      // Phase 6.5: Clear the approval-agent map
+      approvalAgentMapRef.current.clear()
     }
   }, [])
 
@@ -225,7 +291,10 @@ export function MCPProvider({ children, autoInit = true }: MCPProviderProps) {
     approve,
     alwaysApprove,
     reject,
-    updateConfig
+    updateConfig,
+    // Phase 6.5: Agent cleanup APIs
+    clearAgentApprovals,
+    registerApprovalForAgent
   }
 
   return <MCPContext.Provider value={value}>{children}</MCPContext.Provider>

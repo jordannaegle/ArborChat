@@ -1,16 +1,19 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Layout } from './components/Layout'
 import { MCPProvider } from './components/mcp'
+import { WorkJournalProvider, SessionResumeDialog, WorkJournalPanel } from './components/workJournal'
 import { SettingsPanel } from './components/settings'
 import { PersonaListModal } from './components/chat'
-import { AgentProvider, useAgentContext } from './contexts'
+import { ToastContainer } from './components/notifications'
+import { AgentProvider, useAgentContext, NotificationProvider, useNotificationContext, ThemeProvider } from './contexts'
+import { SettingsProvider } from './contexts/SettingsContext'
+import type { ResumptionContext, ResumedSession } from './contexts/AgentContext'
 import { AgentLaunchModal, AgentIndicator, AgentPanelContainer } from './components/agent'
 import { Conversation, Message } from './types'
 import { PersonaMetadata } from './types/persona'
-import type { AgentToolPermission, AgentMessage } from './types/agent'
+import type { AgentToolPermission, AgentMessage, GitContext } from './types/agent'
 import { Loader2 } from 'lucide-react'
-import { useToolChat } from './hooks'
-import { parseAIError } from './lib/errorParser'
+import { useToolChat, useAgentNotifications } from './hooks'
 
 function ApiKeyPrompt({ onSave }: { onSave: (k: string) => void }) {
   const [key, setKey] = useState('')
@@ -79,10 +82,19 @@ function ApiKeyPrompt({ onSave }: { onSave: (k: string) => void }) {
   )
 }
 
+
 // Main content component that uses MCP hooks (must be inside MCPProvider)
 function AppContent({ apiKey }: { apiKey: string }) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash')
+  const [selectedModel, setSelectedModelState] = useState('gemini-2.5-flash')
+  
+  // Model change handler that persists the selection
+  const setSelectedModel = useCallback((model: string) => {
+    setSelectedModelState(model)
+    window.api.setSelectedModel(model).catch(err => 
+      console.warn('[App] Failed to persist model selection:', err)
+    )
+  }, [])
 
   // Data
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -102,35 +114,53 @@ function AppContent({ apiKey }: { apiKey: string }) {
   const [pending, setPending] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const streamBufferRef = useRef('')
-
+  
   // Tool chat integration
   const {
     mcpConnected,
     pendingToolCall,
     toolExecutions,
     isProcessingTool,
+    memoryStatus,
+    memoryItemCount,
     buildSystemPrompt,
     parseToolCall,
     showToolApprovalCard,
     executeToolDirectly,
     handleToolApprove,
     handleToolReject,
-    clearPendingTool
+    clearPendingTool,
+    fetchMemoryContext,
+    resetMemoryStatus
   } = useToolChat()
-
+  
+  // Notification integration (Phase 5)
+  const { toasts, dismissToast } = useNotificationContext()
+  useAgentNotifications()
+  
   // Agent state (Phase 1)
   const [showAgentLaunchModal, setShowAgentLaunchModal] = useState(false)
   const [agentLaunchContext, setAgentLaunchContext] = useState<string | undefined>(undefined)
   const agentContext = useAgentContext()
-
+  
+  // Phase 5: Session resumption & work journal state
+  const [showResumeDialog, setShowResumeDialog] = useState(false)
+  const [showWorkJournal, setShowWorkJournal] = useState(false)
+  const [activeWorkSessionId, setActiveWorkSessionId] = useState<string | null>(null)
+  
+  // Phase 5: Notebook panel state
+  const [isNotebookPanelOpen, setIsNotebookPanelOpen] = useState(false)
+  
   // Refs for continuation context
   const pendingContextRef = useRef<any[]>([])
   const pendingParentIdRef = useRef<string | null>(null)
+  // Ref to track native function calls from providers like Anthropic
+  const nativeFunctionCallRef = useRef<{ name: string; args: Record<string, unknown> } | null>(null)
 
-  // Init
+  // Init - load persisted model selection
   useEffect(() => {
     window.api.getSelectedModel().then((model) => {
-      if (model) setSelectedModel(model)
+      if (model) setSelectedModelState(model)
     })
   }, [])
 
@@ -148,7 +178,8 @@ function AppContent({ apiKey }: { apiKey: string }) {
       setPending(false)
       setActiveThreadRootId(null)
       clearPendingTool()
-
+      resetMemoryStatus() // Reset memory status for new conversation
+      
       // Then fetch messages for the new conversation
       window.api.getMessages(activeId).then(setAllMessages)
     } else {
@@ -156,24 +187,23 @@ function AppContent({ apiKey }: { apiKey: string }) {
       setStreamingContent('')
       streamBufferRef.current = ''
       setPending(false)
+      resetMemoryStatus()
     }
-  }, [activeId, clearPendingTool])
+  }, [activeId, clearPendingTool, resetMemoryStatus])
 
   // Load personas list on mount (Phase 5)
   useEffect(() => {
-    window.api.personas
-      .list()
+    window.api.personas.list()
       .then(setPersonas)
-      .catch((err) => console.warn('[App] Failed to load personas:', err))
+      .catch(err => console.warn('[App] Failed to load personas:', err))
   }, [])
 
   // Load persona content when active persona changes (Phase 5)
   useEffect(() => {
     if (activePersonaId) {
-      window.api.personas
-        .getPrompt(activePersonaId)
+      window.api.personas.getPrompt(activePersonaId)
         .then(setActivePersonaContent)
-        .catch((err) => {
+        .catch(err => {
           console.warn('[App] Failed to load persona content:', err)
           setActivePersonaContent(null)
         })
@@ -185,16 +215,15 @@ function AppContent({ apiKey }: { apiKey: string }) {
   // Derive active persona name from personas list (Phase 5)
   const activePersonaName = useMemo(() => {
     if (!activePersonaId) return null
-    const persona = personas.find((p) => p.id === activePersonaId)
+    const persona = personas.find(p => p.id === activePersonaId)
     return persona?.name || null
   }, [activePersonaId, personas])
 
   // Refresh personas when returning from settings (Phase 5)
   const refreshPersonas = useCallback(() => {
-    window.api.personas
-      .list()
+    window.api.personas.list()
       .then(setPersonas)
-      .catch((err) => console.warn('[App] Failed to refresh personas:', err))
+      .catch(err => console.warn('[App] Failed to refresh personas:', err))
   }, [])
 
   const refreshConversations = () => {
@@ -208,64 +237,93 @@ function AppContent({ apiKey }: { apiKey: string }) {
   }, [])
 
   // Handle agent creation from modal
-  const handleAgentCreate = useCallback(
-    (config: {
-      instructions: string
-      name?: string
-      toolPermission: AgentToolPermission
-      contextOptions: {
-        includeCurrentMessage: boolean
-        includeParentContext: boolean
-        parentContextDepth: number
-        includeFullConversation: boolean
-        includePersona: boolean
-      }
-      workingDirectory: string
-    }) => {
-      if (!activeId) return
+  const handleAgentCreate = useCallback(async (config: {
+    instructions: string
+    name?: string
+    toolPermission: AgentToolPermission
+    contextOptions: {
+      includeCurrentMessage: boolean
+      includeParentContext: boolean
+      parentContextDepth: number
+      includeFullConversation: boolean
+      includePersona: boolean
+    }
+    workingDirectory: string
+    gitContext?: GitContext
+    // Phase 4: Advanced capabilities
+    autoAnalyzeProject?: boolean
+    enableMultiFileOrchestration?: boolean
+    checkpointToRestore?: string
+    contextTokenBudget?: number
+  }) => {
+    if (!activeId) return
 
-      // Convert messages to agent format
-      const conversationMessages: AgentMessage[] = allMessages.map((m) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        timestamp: m.created_at
-      }))
+    // Convert messages to agent format
+    const conversationMessages: AgentMessage[] = allMessages.map(m => ({
+      id: m.id,
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+      timestamp: m.created_at
+    }))
 
-      // Create the agent
-      agentContext.createAgent({
-        name: config.name,
-        instructions: config.instructions,
-        conversationId: activeId,
-        sourceMessageContent: agentLaunchContext,
+    const agentOptions = {
+      name: config.name,
+      instructions: config.instructions,
+      conversationId: activeId,
+      sourceMessageContent: agentLaunchContext,
+      model: selectedModel,
+      toolPermission: config.toolPermission,
+      workingDirectory: config.workingDirectory,
+      personaId: config.contextOptions.includePersona ? activePersonaId || undefined : undefined,
+      personaContent: config.contextOptions.includePersona ? activePersonaContent || undefined : undefined,
+      includeCurrentMessage: config.contextOptions.includeCurrentMessage,
+      includeParentContext: config.contextOptions.includeParentContext,
+      parentContextDepth: config.contextOptions.parentContextDepth,
+      includeFullConversation: config.contextOptions.includeFullConversation,
+      includePersona: config.contextOptions.includePersona,
+      conversationMessages,
+      // Phase 4
+      autoAnalyzeProject: config.autoAnalyzeProject,
+      enableMultiFileOrchestration: config.enableMultiFileOrchestration,
+      checkpointToRestore: config.checkpointToRestore,
+      contextTokenBudget: config.contextTokenBudget
+    }
+
+    // Use async version if Phase 4 features are enabled
+    if (config.autoAnalyzeProject || config.checkpointToRestore) {
+      await agentContext.createAgentWithAdvancedContext(agentOptions)
+    } else {
+      agentContext.createAgent(agentOptions)
+    }
+
+    setShowAgentLaunchModal(false)
+    setAgentLaunchContext(undefined)
+  }, [activeId, allMessages, agentLaunchContext, selectedModel, activePersonaId, activePersonaContent, agentContext])
+
+  // Phase 5: Handle session resumption
+  const handleSessionResume = useCallback((session: ResumedSession, context: ResumptionContext) => {
+    const conversationId = activeId || session.conversationId
+    
+    // Create resumed agent
+    agentContext.createAgentWithResumption(
+      conversationId,
+      session,
+      context,
+      {
         model: selectedModel,
-        toolPermission: config.toolPermission,
-        workingDirectory: config.workingDirectory,
-        personaId: config.contextOptions.includePersona ? activePersonaId || undefined : undefined,
-        personaContent: config.contextOptions.includePersona
-          ? activePersonaContent || undefined
-          : undefined,
-        includeCurrentMessage: config.contextOptions.includeCurrentMessage,
-        includeParentContext: config.contextOptions.includeParentContext,
-        parentContextDepth: config.contextOptions.parentContextDepth,
-        includeFullConversation: config.contextOptions.includeFullConversation,
-        includePersona: config.contextOptions.includePersona,
-        conversationMessages
-      })
+        toolPermission: 'standard',
+        personaId: activePersonaId || undefined,
+        personaContent: activePersonaContent || undefined
+      }
+    )
+    
+    // Track the work session for the journal panel
+    setActiveWorkSessionId(session.id)
+    setShowWorkJournal(true)
+    setShowResumeDialog(false)
+    agentContext.togglePanel(true)
+  }, [activeId, selectedModel, activePersonaId, activePersonaContent, agentContext])
 
-      setShowAgentLaunchModal(false)
-      setAgentLaunchContext(undefined)
-    },
-    [
-      activeId,
-      allMessages,
-      agentLaunchContext,
-      selectedModel,
-      activePersonaId,
-      activePersonaContent,
-      agentContext
-    ]
-  )
 
   // Views
   const mainMessages = useMemo(() => {
@@ -309,133 +367,207 @@ function AppContent({ apiKey }: { apiKey: string }) {
     return allMessages.find((m) => m.id === activeThreadRootId) || null
   }, [allMessages, activeThreadRootId])
 
-  // Stream AI response with tool detection
-  const streamAI = useCallback(
-    (context: any[], parentId: string | null) => {
-      setPending(true)
-      setStreamingContent('')
-      streamBufferRef.current = ''
-      pendingContextRef.current = context
-      pendingParentIdRef.current = parentId
 
-      const cleanup = () => {
-        window.api.offAI()
+  // Stream AI response with tool detection
+  const streamAI = useCallback((context: any[], parentId: string | null) => {
+    console.log('[App] streamAI called, context length:', context.length, 'activeId:', activeId)
+    setPending(true)
+    setStreamingContent('')
+    streamBufferRef.current = ''
+    nativeFunctionCallRef.current = null  // Reset native function call
+    pendingContextRef.current = context
+    pendingParentIdRef.current = parentId
+
+    const cleanup = () => {
+      window.api.offAI()
+    }
+
+    window.api.onToken((token) => {
+      streamBufferRef.current += token
+      setStreamingContent(streamBufferRef.current)
+      // Log first token to confirm tokens are being received
+      if (streamBufferRef.current.length === token.length) {
+        console.log('[App] First token received, starting stream')
+      }
+    })
+
+    // Listen for native function calls from providers like Anthropic
+    if (window.api.onFunctionCall) {
+      window.api.onFunctionCall((data) => {
+        console.log('[App] Native function call received:', data.name, data.args)
+        nativeFunctionCallRef.current = data
+      })
+    }
+
+    window.api.onDone(async () => {
+      const finalContent = streamBufferRef.current
+      const nativeFunctionCall = nativeFunctionCallRef.current
+      console.log('[App] onDone fired - finalContent length:', finalContent.length, 'nativeFunctionCall:', nativeFunctionCall?.name || 'none')
+      cleanup()
+      
+      // Check for native function call first (from providers like Anthropic)
+      if (nativeFunctionCall) {
+        console.log('[App] Processing native function call:', nativeFunctionCall.name)
+        const toolName = nativeFunctionCall.name
+        const toolArgs = nativeFunctionCall.args
+        
+        // Create a synthetic content message for the AI response
+        const syntheticContent = finalContent || `I'll use the ${toolName} tool to help with that.`
+        setStreamingContent(syntheticContent)
+        
+        try {
+          const config = await window.api.mcp.getConfig()
+          const alwaysApproveTools = config.alwaysApproveTools || []
+          
+          if (alwaysApproveTools.includes(toolName)) {
+            // Auto-approve: execute directly without showing card
+            console.log(`[App] Auto-approving native function call: ${toolName}`)
+            
+            // Save the AI message
+            const aiMsg = await window.api.addMessage(
+              activeId!, 
+              'assistant', 
+              syntheticContent,
+              parentId
+            )
+            setAllMessages((prev) => [...prev, aiMsg])
+            
+            // Execute tool directly
+            const toolResultContext = await executeToolDirectly(toolName, toolArgs)
+            
+            // Build continuation context with tool result
+            const continueContext = [
+              ...pendingContextRef.current,
+              { role: 'assistant', content: syntheticContent },
+              { role: 'user', content: `Tool execution result:\n\n${toolResultContext}\n\nPlease continue based on this result.` }
+            ]
+
+            setStreamingContent('')
+            nativeFunctionCallRef.current = null
+            
+            console.log('[App] Starting continuation after auto-approved tool')
+            // Continue the conversation
+            streamAI(continueContext, parentId)
+          } else {
+            // Not auto-approved: show the approval card
+            console.log('[App] Native function call waiting for approval:', toolName)
+            showToolApprovalCard(syntheticContent, toolName, toolArgs)
+            nativeFunctionCallRef.current = null
+            setPending(false)
+          }
+        } catch (error) {
+          console.error('[App] Error handling native function call:', error)
+          // On error, show the approval card as fallback
+          showToolApprovalCard(syntheticContent, toolName, toolArgs)
+          nativeFunctionCallRef.current = null
+          setPending(false)
+        }
+        return
+      }
+      
+      // No native function call - use text-based parsing for other providers
+      if (!finalContent) {
+        setPending(false)
+        return
       }
 
-      window.api.onToken((token) => {
-        streamBufferRef.current += token
-        setStreamingContent(streamBufferRef.current)
-      })
+      // Debug: Log AI response for tool detection
+      console.log('[App] AI Response:', finalContent.substring(0, 500))
 
-      window.api.onDone(async () => {
-        const finalContent = streamBufferRef.current
-        cleanup()
+      // Parse tool calls WITHOUT setting state first
+      const { hasToolCall, cleanContent, toolName, toolArgs, toolExplanation } = parseToolCall(finalContent)
+      
+      if (hasToolCall && toolName && toolArgs) {
+        // Tool detected - check if it's in the always-approve list BEFORE showing card
+        setStreamingContent(cleanContent)
+        
+        try {
+          const config = await window.api.mcp.getConfig()
+          const alwaysApproveTools = config.alwaysApproveTools || []
+          
+          if (alwaysApproveTools.includes(toolName)) {
+            // Auto-approve: execute directly without showing card
+            console.log(`[App] Auto-approving always-approved tool: ${toolName}`)
+            
+            // Save the AI message with the tool request
+            const aiMsg = await window.api.addMessage(
+              activeId!, 
+              'assistant', 
+              finalContent,
+              parentId
+            )
+            setAllMessages((prev) => [...prev, aiMsg])
+            
+            // Execute tool directly
+            const toolResultContext = await executeToolDirectly(toolName, toolArgs, toolExplanation)
+            
+            // Build continuation context with tool result
+            const continueContext = [
+              ...pendingContextRef.current,
+              { role: 'assistant', content: finalContent },
+              { role: 'user', content: `Tool execution result:\n\n${toolResultContext}\n\nPlease continue based on this result.` }
+            ]
 
-        if (!finalContent) {
-          setPending(false)
-          return
-        }
-
-        // Debug: Log AI response for tool detection
-        console.log('[App] AI Response:', finalContent.substring(0, 500))
-
-        // Parse tool calls WITHOUT setting state first
-        const { hasToolCall, cleanContent, toolName, toolArgs, toolExplanation } =
-          parseToolCall(finalContent)
-
-        if (hasToolCall && toolName && toolArgs) {
-          // Tool detected - check if it's in the always-approve list BEFORE showing card
-          setStreamingContent(cleanContent)
-
-          try {
-            const config = await window.api.mcp.getConfig()
-            const alwaysApproveTools = config.alwaysApproveTools || []
-
-            if (alwaysApproveTools.includes(toolName)) {
-              // Auto-approve: execute directly without showing card
-              console.log(`[App] Auto-approving always-approved tool: ${toolName}`)
-
-              // Save the AI message with the tool request
-              const aiMsg = await window.api.addMessage(
-                activeId!,
-                'assistant',
-                finalContent,
-                parentId
-              )
-              setAllMessages((prev) => [...prev, aiMsg])
-
-              // Execute tool directly
-              const toolResultContext = await executeToolDirectly(
-                toolName,
-                toolArgs,
-                toolExplanation
-              )
-
-              // Build continuation context with tool result
-              const continueContext = [
-                ...pendingContextRef.current,
-                { role: 'assistant', content: finalContent },
-                {
-                  role: 'user',
-                  content: `Tool execution result:\n\n${toolResultContext}\n\nPlease continue based on this result.`
-                }
-              ]
-
-              setStreamingContent('')
-
-              // Continue the conversation
-              streamAI(continueContext, parentId)
-            } else {
-              // Not auto-approved: show the approval card
-              console.log('[App] Tool call detected, waiting for approval')
-              showToolApprovalCard(finalContent, toolName, toolArgs, toolExplanation)
-              setPending(false)
-            }
-          } catch (error) {
-            console.error('[App] Error checking auto-approval:', error)
-            // On error, show the approval card as fallback
+            setStreamingContent('')
+            
+            // Continue the conversation
+            streamAI(continueContext, parentId)
+          } else {
+            // Not auto-approved: show the approval card
+            console.log('[App] Tool call detected, waiting for approval')
             showToolApprovalCard(finalContent, toolName, toolArgs, toolExplanation)
             setPending(false)
           }
-        } else {
-          // Normal message, save it
-          console.log('[App] No tool call detected')
+        } catch (error) {
+          console.error('[App] Error checking auto-approval:', error)
+          // On error, show the approval card as fallback
+          showToolApprovalCard(finalContent, toolName, toolArgs, toolExplanation)
+          setPending(false)
+        }
+      } else {
+        // Normal message, save it
+        console.log('[App] Saving normal message, length:', finalContent.length, 'activeId:', activeId)
+        try {
           const aiMsg = await window.api.addMessage(activeId!, 'assistant', finalContent, parentId)
+          console.log('[App] Message saved:', aiMsg.id)
           setAllMessages((prev) => [...prev, aiMsg])
           setStreamingContent('')
           setPending(false)
+        } catch (saveError) {
+          console.error('[App] Error saving message:', saveError)
+          setPending(false)
         }
-      })
+      }
+    })
 
-      window.api.onError((err) => {
-        console.error(err)
-        cleanup()
-        setPending(false)
+    window.api.onError((err) => {
+      console.error(err)
+      cleanup()
+      setPending(false)
 
-        // Parse error for user-friendly message
-        const parsedError = parseAIError(err, selectedModel)
+      const errorMsg = {
+        id: 'error-' + Date.now(),
+        conversation_id: activeId!,
+        role: 'assistant' as const,
+        content: `⚠️ **Error**: ${err}. Please check your API Key quota.`,
+        parent_message_id: parentId,
+        created_at: new Date().toISOString()
+      }
+      setAllMessages((prev) => [...prev, errorMsg])
+    })
 
-        const errorMsg = {
-          id: 'error-' + Date.now(),
-          conversation_id: activeId!,
-          role: 'assistant' as const,
-          content: parsedError.userMessage,
-          parent_message_id: parentId,
-          created_at: new Date().toISOString()
-        }
-        setAllMessages((prev) => [...prev, errorMsg])
-      })
+    window.api.askAI(apiKey, context, selectedModel)
+  }, [activeId, apiKey, selectedModel, parseToolCall, showToolApprovalCard, executeToolDirectly])
 
-      window.api.askAI(apiKey, context, selectedModel)
-    },
-    [activeId, apiKey, selectedModel, parseToolCall, showToolApprovalCard, executeToolDirectly]
-  )
 
   // Handle sending a message
   const handleSendMessage = async (content: string) => {
     if (!activeId || pending) return
 
     const parentId = activeThreadRootId
+    
+    // Check if this is the first message in a new conversation (for memory pre-fetch)
+    const isFirstMessage = mainMessages.length === 0 && !parentId
 
     // Save User Message
     const userMsg = await window.api.addMessage(activeId, 'user', content, parentId)
@@ -451,17 +583,27 @@ function AppContent({ apiKey }: { apiKey: string }) {
       )
     }
 
-    // Build Context with MCP tool instructions and persona (Phase 5)
-    let basePrompt = 'You are ArborChat, an intelligent assistant.'
+    // Pre-fetch memory context from ArborMemoryService on first message
+    let memoryContext: string | null = null
+    if (isFirstMessage) {
+      const memoryResult = await fetchMemoryContext(activeId)
+      memoryContext = memoryResult.context
+    }
 
+    // Build Context with persona + memory + MCP tool instructions
+    let basePrompt = 'You are ArborChat, an intelligent assistant.'
+    
     // Prepend persona content if active (Phase 5)
     if (activePersonaContent) {
       basePrompt = `${activePersonaContent}\n\n---\n\n${basePrompt}`
     }
-
+    
+    // Build system prompt with memory context injected BEFORE MCP tools
+    const systemContent = buildSystemPrompt(basePrompt, memoryContext || undefined)
+    
     const system: { role: 'system'; content: string } = {
       role: 'system',
-      content: buildSystemPrompt(basePrompt)
+      content: systemContent
     }
 
     let context: any[] = []
@@ -487,39 +629,41 @@ function AppContent({ apiKey }: { apiKey: string }) {
     streamAI(context, parentId)
   }
 
+
   // Handle tool approval - execute and continue conversation
   const onToolApprove = async (id: string, modifiedArgs?: Record<string, unknown>) => {
+    console.log('[App] onToolApprove called:', { id, toolName: pendingToolCall?.tool })
     if (!activeId || !pendingToolCall) return
 
     const parentId = pendingParentIdRef.current
-
+    
     try {
       // Save the AI message with the tool request (cleaned content)
       const aiMsg = await window.api.addMessage(
-        activeId,
-        'assistant',
+        activeId, 
+        'assistant', 
         pendingToolCall.originalContent,
         parentId
       )
       setAllMessages((prev) => [...prev, aiMsg])
-
+      
       // Execute tool and get result
+      console.log('[App] About to execute tool via handleToolApprove')
       const toolResultContext = await handleToolApprove(id, modifiedArgs)
-
+      console.log('[App] Tool execution complete, toolExecutions count:', toolExecutions.length)
+      
       // Build continuation context with tool result (system prompt is in pendingContextRef)
       const continueContext = [
         ...pendingContextRef.current,
         { role: 'assistant', content: pendingToolCall.originalContent },
-        {
-          role: 'user',
-          content: `Tool execution result:\n\n${toolResultContext}\n\nPlease continue based on this result.`
-        }
+        { role: 'user', content: `Tool execution result:\n\n${toolResultContext}\n\nPlease continue based on this result.` }
       ]
 
       setStreamingContent('')
-
+      
       // Continue the conversation
       streamAI(continueContext, parentId)
+      
     } catch (error) {
       console.error('[App] Tool execution failed:', error)
       setStreamingContent('')
@@ -529,10 +673,10 @@ function AppContent({ apiKey }: { apiKey: string }) {
   // Handle tool rejection
   const onToolReject = (id: string) => {
     if (!pendingToolCall) return
-
+    
     handleToolReject(id)
     setStreamingContent('')
-
+    
     // Optionally show a message that the tool was rejected
     const rejectMsg = {
       id: 'reject-' + Date.now(),
@@ -546,25 +690,21 @@ function AppContent({ apiKey }: { apiKey: string }) {
   }
 
   // Handle tool always approve - add to always-approve list and execute
-  const onToolAlwaysApprove = async (
-    id: string,
-    toolName: string,
-    modifiedArgs?: Record<string, unknown>
-  ) => {
+  const onToolAlwaysApprove = async (id: string, toolName: string, modifiedArgs?: Record<string, unknown>) => {
     if (!activeId || !pendingToolCall) return
 
     try {
       // Get current config and add tool to always-approve list
       const currentConfig = await window.api.mcp.getConfig()
       const alwaysApproveTools = currentConfig.alwaysApproveTools || []
-
+      
       if (!alwaysApproveTools.includes(toolName)) {
         await window.api.mcp.updateConfig({
           alwaysApproveTools: [...alwaysApproveTools, toolName]
         })
         console.log(`[App] Added ${toolName} to always-approve list`)
       }
-
+      
       // Then proceed with regular approval
       await onToolApprove(id, modifiedArgs)
     } catch (error) {
@@ -573,6 +713,7 @@ function AppContent({ apiKey }: { apiKey: string }) {
       await onToolApprove(id, modifiedArgs)
     }
   }
+
 
   return (
     <>
@@ -611,6 +752,9 @@ function AppContent({ apiKey }: { apiKey: string }) {
         onToolApprove={onToolApprove}
         onToolAlwaysApprove={onToolAlwaysApprove}
         onToolReject={onToolReject}
+        // Memory Props
+        memoryStatus={memoryStatus}
+        memoryItemCount={memoryItemCount}
         // Persona Props (Phase 5)
         activePersonaId={activePersonaId}
         activePersonaName={activePersonaName}
@@ -618,6 +762,11 @@ function AppContent({ apiKey }: { apiKey: string }) {
         onShowPersonaList={() => setShowPersonaList(true)}
         // Agent Props (Phase 1)
         onAgentLaunch={handleAgentLaunch}
+        // Phase 5: Session resumption
+        onResumeSession={() => setShowResumeDialog(true)}
+        // Phase 5: Notebook panel
+        isNotebookPanelOpen={isNotebookPanelOpen}
+        onToggleNotebookPanel={() => setIsNotebookPanelOpen(prev => !prev)}
       />
       <SettingsPanel
         isOpen={isSettingsOpen}
@@ -680,9 +829,27 @@ function AppContent({ apiKey }: { apiKey: string }) {
           />
         </div>
       )}
+      {/* Toast Notifications (Phase 5) */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      
+      {/* Phase 5: Session Resume Dialog */}
+      <SessionResumeDialog
+        isOpen={showResumeDialog}
+        onClose={() => setShowResumeDialog(false)}
+        onResume={handleSessionResume}
+      />
+      
+      {/* Phase 5: Work Journal Panel */}
+      <WorkJournalPanel
+        sessionId={activeWorkSessionId}
+        isOpen={showWorkJournal}
+        onToggle={() => setShowWorkJournal(!showWorkJournal)}
+        onClose={() => setShowWorkJournal(false)}
+      />
     </>
   )
 }
+
 
 function App() {
   const [apiKey, setApiKey] = useState<string | null>(null)
@@ -708,11 +875,19 @@ function App() {
   }
 
   return (
-    <MCPProvider autoInit={true}>
-      <AgentProvider>
-        <AppContent apiKey={apiKey} />
-      </AgentProvider>
-    </MCPProvider>
+    <ThemeProvider>
+      <SettingsProvider>
+        <MCPProvider autoInit={true}>
+          <AgentProvider>
+            <NotificationProvider>
+              <WorkJournalProvider>
+                <AppContent apiKey={apiKey} />
+              </WorkJournalProvider>
+            </NotificationProvider>
+          </AgentProvider>
+        </MCPProvider>
+      </SettingsProvider>
+    </ThemeProvider>
   )
 }
 

@@ -1,107 +1,93 @@
-import { Bug, Code2, FileText, PenTool, Zap } from 'lucide-react'
+// src/renderer/src/components/agent/AgentTemplateSelector.tsx
+// Template picker for quick agent configuration (Phase 6)
+
+import { 
+  Search, 
+  Bug, 
+  FileText, 
+  RefreshCw, 
+  TestTube, 
+  Sparkles, 
+  FolderTree,
+  Check
+} from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { AgentTemplate } from '../../types/agent'
+import type { AgentTemplate } from '../../types/agent'
+import { DEFAULT_AGENT_TEMPLATES } from '../../data/agentTemplates'
+
+// Icon mapping for templates
+const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  Search,
+  Bug,
+  FileText,
+  RefreshCw,
+  TestTube,
+  Sparkles,
+  FolderTree
+}
 
 interface AgentTemplateSelectorProps {
-    selectedTemplateId: string | null
-    onSelectTemplate: (template: AgentTemplate | null) => void
+  selectedTemplateId: string | null
+  onSelectTemplate: (template: AgentTemplate | null) => void
 }
 
-const TEMPLATES: AgentTemplate[] = [
-    {
-        id: 'general-assistant',
-        name: 'General Assistant',
-        description: 'A versatile assistant for various coding tasks',
-        icon: 'Zap',
-        category: 'custom',
-        instructions: 'You are a helpful coding assistant. Please help the user with their request.',
-        toolPermission: 'standard',
-        tags: ['general', 'helper'],
-        isBuiltIn: true,
-        requiresDirectory: false
-    },
-    {
-        id: 'code-refactor',
-        name: 'Code Refactor',
-        description: 'Improve code quality and maintainability',
-        icon: 'Code2',
-        category: 'custom',
-        instructions: 'Analyze the provided code and suggest improvements for readability, performance, and structure. Apply best practices.',
-        toolPermission: 'standard',
-        tags: ['refactor', 'cleanup'],
-        isBuiltIn: true,
-        requiresDirectory: false
-    },
-    {
-        id: 'bug-fixer',
-        name: 'Bug Fixer',
-        description: 'Identify and resolve code issues',
-        icon: 'Bug',
-        category: 'custom',
-        instructions: 'Analyze the error or issue description. Locate the source of the bug and implement a fix. verify the fix if possible.',
-        toolPermission: 'standard',
-        tags: ['debug', 'fix'],
-        isBuiltIn: true,
-        requiresDirectory: true
-    },
-    {
-        id: 'documentation',
-        name: 'Documentation',
-        description: 'Generate or improve documentation',
-        icon: 'FileText',
-        category: 'custom',
-        instructions: 'Review the code and generate comprehensive documentation, including comments, README updates, or API references.',
-        toolPermission: 'standard',
-        tags: ['docs', 'writing'],
-        isBuiltIn: true,
-        requiresDirectory: true
-    }
-]
-
-export function AgentTemplateSelector({ selectedTemplateId, onSelectTemplate }: AgentTemplateSelectorProps) {
-
-    const getIcon = (iconName: string) => {
-        switch (iconName) {
-            case 'Code2': return <Code2 size={18} />
-            case 'Bug': return <Bug size={18} />
-            case 'FileText': return <FileText size={18} />
-            case 'Zap': return <Zap size={18} />
-            default: return <PenTool size={18} />
-        }
-    }
-
-    return (
-        <div className="space-y-3">
-            <label className="text-xs font-medium text-text-muted">Choose a Template</label>
-            <div className="grid grid-cols-2 gap-3">
-                {TEMPLATES.map((template) => {
-                    const isSelected = selectedTemplateId === template.id
-                    return (
-                        <button
-                            key={template.id}
-                            type="button"
-                            onClick={() => onSelectTemplate(isSelected ? null : template)}
-                            className={cn(
-                                'flex flex-col items-start gap-2 p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer',
-                                isSelected
-                                    ? 'bg-violet-500/10 border-violet-500/50 shadow-[0_0_15px_-3px_rgba(139,92,246,0.2)]'
-                                    : 'bg-secondary/30 border-secondary/50 hover:bg-secondary/50 hover:border-violet-500/30'
-                            )}
-                        >
-                            <div className={cn(
-                                'p-2 rounded-lg',
-                                isSelected ? 'bg-violet-500/20 text-violet-300' : 'bg-secondary/50 text-text-muted'
-                            )}>
-                                {getIcon(template.icon)}
-                            </div>
-                            <div>
-                                <div className="font-medium text-sm text-text-normal">{template.name}</div>
-                                <div className="text-xs text-text-muted mt-0.5 line-clamp-1">{template.description}</div>
-                            </div>
-                        </button>
-                    )
-                })}
-            </div>
-        </div>
-    )
+export function AgentTemplateSelector({
+  selectedTemplateId,
+  onSelectTemplate
+}: AgentTemplateSelectorProps) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-text-muted">
+        Quick Start Templates
+      </label>
+      <div className="grid grid-cols-2 gap-2">
+        {DEFAULT_AGENT_TEMPLATES.slice(0, 6).map((template) => {
+          const Icon = ICON_MAP[template.icon] || Sparkles
+          const isSelected = selectedTemplateId === template.id
+          
+          return (
+            <button
+              key={template.id}
+              onClick={() => onSelectTemplate(isSelected ? null : template)}
+              className={cn(
+                "flex items-start gap-2 p-3 rounded-lg border text-left transition-all",
+                isSelected
+                  ? "bg-primary/10 border-primary/50 ring-1 ring-primary/30"
+                  : "bg-secondary/30 border-secondary/50 hover:bg-secondary/50 hover:border-secondary"
+              )}
+            >
+              <div className={cn(
+                "p-1.5 rounded-md flex-shrink-0 mt-0.5",
+                isSelected ? "bg-primary/20 text-primary" : "bg-secondary text-text-muted"
+              )}>
+                <Icon size={14} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className={cn(
+                    "text-sm font-medium truncate",
+                    isSelected ? "text-primary" : "text-white"
+                  )}>
+                    {template.name}
+                  </span>
+                  {isSelected && <Check size={12} className="text-primary flex-shrink-0" />}
+                </div>
+                <p className="text-xs text-text-muted line-clamp-2 mt-0.5">
+                  {template.description}
+                </p>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+      
+      {selectedTemplateId && (
+        <p className="text-xs text-text-muted mt-1">
+          Template selected. Instructions will be pre-filled.
+        </p>
+      )}
+    </div>
+  )
 }
+
+export default AgentTemplateSelector

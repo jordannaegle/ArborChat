@@ -13,6 +13,7 @@ import {
 import { cn } from '../../../lib/utils'
 import { ModelSelector } from '../../ModelSelector'
 import { PROVIDERS, ProviderInfo } from '../../../types'
+import { ProviderIcon } from '../../icons'
 
 interface APIKeysSectionProps {
   selectedModel: string
@@ -155,7 +156,7 @@ export function APIKeysSection({ selectedModel, onModelChange }: APIKeysSectionP
                   'hover:bg-tertiary/70 transition-colors'
                 )}
               >
-                <span className="text-xl">{provider.icon}</span>
+                <ProviderIcon provider={provider.id} size={24} className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-white">{provider.name}</div>
                   <div className="text-xs text-text-muted truncate">{provider.description}</div>

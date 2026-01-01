@@ -1,0 +1,1412 @@
+/* src/renderer/src/assets/themes.css */
+/* Theme-specific CSS utilities and effects */
+
+/* ========================================
+   Glass Panel Effects
+   ======================================== */
+
+/* Glass panels - only active when theme has glass enabled */
+[data-glass="true"] .glass-panel {
+  background: var(--theme-glass);
+  backdrop-filter: blur(var(--theme-glass-blur));
+  -webkit-backdrop-filter: blur(var(--theme-glass-blur));
+  border: 1px solid var(--theme-glass-border);
+}
+
+[data-glass="false"] .glass-panel {
+  background: var(--theme-surface);
+  border: 1px solid var(--theme-border);
+}
+
+/* Glass sidebar variant */
+[data-glass="true"] .glass-sidebar {
+  background: var(--theme-glass);
+  backdrop-filter: blur(calc(var(--theme-glass-blur) * 1.2));
+  -webkit-backdrop-filter: blur(calc(var(--theme-glass-blur) * 1.2));
+  border-right: 1px solid var(--theme-glass-border);
+}
+
+[data-glass="false"] .glass-sidebar {
+  background: var(--theme-background-soft);
+  border-right: 1px solid var(--theme-border);
+}
+
+/* ========================================
+   Glow Effects
+   ======================================== */
+
+/* Primary glow effect - useful for buttons and active states */
+.glow-primary {
+  box-shadow: var(--theme-shadow-glow);
+}
+
+.glow-primary-hover:hover {
+  box-shadow: var(--theme-shadow-glow);
+}
+
+/* Soft glow for cards and panels */
+.glow-soft {
+  box-shadow: 0 0 40px var(--theme-glow);
+}
+
+/* ========================================
+   Theme Transitions
+   ======================================== */
+
+/* Smooth theme transitions for color changes */
+* {
+  transition-property: background-color, border-color, box-shadow, color;
+  transition-duration: var(--theme-transition-fast, 100ms);
+  transition-timing-function: ease-out;
+}
+
+/* Disable transitions for prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0ms !important;
+  }
+}
+
+/* ========================================
+   Theme-Specific Overrides
+   ======================================== */
+
+/* Neon Cyber theme special effects */
+[data-theme="neon-cyber"] .cyber-glow {
+  text-shadow: 0 0 10px var(--theme-primary);
+}
+
+[data-theme="neon-cyber"] .cyber-border {
+  box-shadow: 
+    0 0 5px var(--theme-primary),
+    inset 0 0 5px var(--theme-primary);
+}
+
+/* Aurora Glass theme special effects */
+[data-theme="aurora-glass"] .aurora-shimmer {
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    rgba(139, 92, 246, 0.1) 50%,
+    transparent 100%
+  );
+  animation: aurora-shift 8s ease-in-out infinite;
+}
+
+@keyframes aurora-shift {
+  0%, 100% { opacity: 0.3; transform: translateX(-10%); }
+  50% { opacity: 0.6; transform: translateX(10%); }
+}
+
+/* ========================================
+   Golden Hour Theme - Special Effects
+   Designed by Don Norman
+   ======================================== */
+
+/* Warm ambient glow for primary interactive elements */
+[data-theme="golden-hour"] .golden-glow {
+  box-shadow: 
+    0 0 20px rgba(212, 165, 116, 0.2),
+    0 0 40px rgba(212, 165, 116, 0.1);
+}
+
+[data-theme="golden-hour"] .golden-glow-intense {
+  box-shadow: 
+    0 0 20px rgba(212, 165, 116, 0.3),
+    0 0 40px rgba(212, 165, 116, 0.15),
+    0 0 60px rgba(212, 165, 116, 0.08);
+}
+
+/* Subtle warm gradient overlay for hero sections */
+[data-theme="golden-hour"] .golden-gradient {
+  background: linear-gradient(
+    135deg,
+    rgba(212, 165, 116, 0.05) 0%,
+    transparent 50%,
+    rgba(212, 165, 116, 0.03) 100%
+  );
+}
+
+/* Warm text highlight for emphasis */
+[data-theme="golden-hour"] .golden-highlight {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(212, 165, 116, 0.15) 50%,
+    transparent 100%
+  );
+  padding: 0 0.25em;
+  border-radius: 2px;
+}
+
+/* Elegant warm border accent */
+[data-theme="golden-hour"] .golden-border-accent {
+  border-left: 2px solid rgba(212, 165, 116, 0.4);
+  padding-left: 1rem;
+}
+
+/* Sunset gradient for special UI elements */
+[data-theme="golden-hour"] .sunset-gradient {
+  background: linear-gradient(
+    135deg,
+    rgba(212, 165, 116, 0.2) 0%,
+    rgba(212, 114, 114, 0.1) 50%,
+    rgba(114, 164, 212, 0.08) 100%
+  );
+}
+
+/* Warm pulse animation for notifications/indicators */
+@keyframes golden-pulse {
+  0%, 100% { 
+    box-shadow: 0 0 0 0 rgba(212, 165, 116, 0.4);
+  }
+  50% { 
+    box-shadow: 0 0 0 8px rgba(212, 165, 116, 0);
+  }
+}
+
+[data-theme="golden-hour"] .golden-pulse {
+  animation: golden-pulse 2s ease-in-out infinite;
+}
+
+/* Warm shimmer effect for loading states */
+@keyframes golden-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+[data-theme="golden-hour"] .golden-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--theme-surface) 0%,
+    rgba(212, 165, 116, 0.1) 50%,
+    var(--theme-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: golden-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Enhanced focus states with warm glow */
+[data-theme="golden-hour"] *:focus-visible {
+  outline: 2px solid rgba(212, 165, 116, 0.5);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(212, 165, 116, 0.15);
+}
+
+/* ========================================
+   Theme Utility Classes
+   ======================================== */
+
+/* Text colors mapped to theme variables */
+.text-theme-primary { color: var(--theme-text-primary); }
+.text-theme-secondary { color: var(--theme-text-secondary); }
+.text-theme-muted { color: var(--theme-text-muted); }
+.text-theme-accent { color: var(--theme-primary); }
+
+/* Background colors */
+.bg-theme-base { background-color: var(--theme-background); }
+.bg-theme-soft { background-color: var(--theme-background-soft); }
+.bg-theme-muted { background-color: var(--theme-background-muted); }
+.bg-theme-surface { background-color: var(--theme-surface); }
+.bg-theme-surface-hover { background-color: var(--theme-surface-hover); }
+.bg-theme-surface-active { background-color: var(--theme-surface-active); }
+
+/* Border colors */
+.border-theme { border-color: var(--theme-border); }
+.border-theme-subtle { border-color: var(--theme-border-subtle); }
+.border-theme-focus { border-color: var(--theme-border-focus); }
+
+/* Semantic backgrounds */
+.bg-theme-success { background-color: var(--theme-success); }
+.bg-theme-success-muted { background-color: var(--theme-success-muted); }
+.bg-theme-warning { background-color: var(--theme-warning); }
+.bg-theme-warning-muted { background-color: var(--theme-warning-muted); }
+.bg-theme-error { background-color: var(--theme-error); }
+.bg-theme-error-muted { background-color: var(--theme-error-muted); }
+
+/* Border radius from theme */
+.rounded-theme-sm { border-radius: var(--theme-radius-sm); }
+.rounded-theme-md { border-radius: var(--theme-radius-md); }
+.rounded-theme-lg { border-radius: var(--theme-radius-lg); }
+.rounded-theme-xl { border-radius: var(--theme-radius-xl); }
+
+/* Shadows from theme */
+.shadow-theme-sm { box-shadow: var(--theme-shadow-sm); }
+.shadow-theme-md { box-shadow: var(--theme-shadow-md); }
+.shadow-theme-lg { box-shadow: var(--theme-shadow-lg); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ABYSSAL THEME - Bioluminescent Deep Ocean Experience
+   Designed by Don Norman
+   
+   "In the deepest darkness, life creates its own light."
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   BIOLUMINESCENT GLOW EFFECTS
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Primary bioluminescent glow - like a jellyfish pulsing */
+[data-theme="abyssal"] .bio-glow {
+  box-shadow: 
+    0 0 20px rgba(0, 212, 170, 0.3),
+    0 0 40px rgba(0, 212, 170, 0.15),
+    0 0 60px rgba(0, 212, 170, 0.08);
+}
+
+/* Intense glow - creature in full display */
+[data-theme="abyssal"] .bio-glow-intense {
+  box-shadow: 
+    0 0 15px rgba(0, 212, 170, 0.5),
+    0 0 30px rgba(0, 212, 170, 0.3),
+    0 0 60px rgba(0, 212, 170, 0.2),
+    0 0 100px rgba(0, 212, 170, 0.1);
+  animation: bio-pulse 3s ease-in-out infinite;
+}
+
+/* Text that glows like bioluminescent bacteria */
+[data-theme="abyssal"] .bio-text {
+  text-shadow: 
+    0 0 10px rgba(0, 212, 170, 0.5),
+    0 0 20px rgba(0, 212, 170, 0.3),
+    0 0 30px rgba(0, 212, 170, 0.2);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   BREATHING ANIMATIONS - Life in the deep
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Slow, organic pulsing - like a jellyfish breathing */
+@keyframes bio-pulse {
+  0%, 100% { 
+    box-shadow: 
+      0 0 15px rgba(0, 212, 170, 0.4),
+      0 0 30px rgba(0, 212, 170, 0.2),
+      0 0 60px rgba(0, 212, 170, 0.1);
+    filter: brightness(1);
+  }
+  50% { 
+    box-shadow: 
+      0 0 25px rgba(0, 212, 170, 0.6),
+      0 0 50px rgba(0, 212, 170, 0.3),
+      0 0 80px rgba(0, 212, 170, 0.15);
+    filter: brightness(1.1);
+  }
+}
+
+[data-theme="abyssal"] .bio-breathe {
+  animation: bio-pulse 4s ease-in-out infinite;
+}
+
+/* Gentle drift - like floating in current */
+@keyframes abyssal-drift {
+  0%, 100% { 
+    transform: translateY(0) translateX(0);
+  }
+  25% { 
+    transform: translateY(-2px) translateX(1px);
+  }
+  50% { 
+    transform: translateY(0) translateX(2px);
+  }
+  75% { 
+    transform: translateY(2px) translateX(1px);
+  }
+}
+
+[data-theme="abyssal"] .bio-drift {
+  animation: abyssal-drift 8s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   WATER CAUSTICS - Light patterns through water
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes caustics {
+  0% {
+    background-position: 0% 0%;
+    opacity: 0.03;
+  }
+  50% {
+    background-position: 100% 100%;
+    opacity: 0.06;
+  }
+  100% {
+    background-position: 0% 0%;
+    opacity: 0.03;
+  }
+}
+
+[data-theme="abyssal"] .water-caustics {
+  position: relative;
+}
+
+[data-theme="abyssal"] .water-caustics::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: 
+    radial-gradient(ellipse at 20% 30%, rgba(0, 212, 170, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(100, 181, 246, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(0, 245, 196, 0.04) 0%, transparent 60%);
+  background-size: 200% 200%;
+  animation: caustics 15s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DEPTH GRADIENTS - Layers of the ocean
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Twilight zone gradient - where light begins to fade */
+[data-theme="abyssal"] .depth-twilight {
+  background: linear-gradient(
+    180deg,
+    rgba(20, 28, 40, 0.9) 0%,
+    rgba(10, 15, 24, 0.95) 100%
+  );
+}
+
+/* Midnight zone - true darkness with distant glow */
+[data-theme="abyssal"] .depth-midnight {
+  background: linear-gradient(
+    180deg,
+    rgba(5, 8, 16, 1) 0%,
+    rgba(10, 15, 24, 0.98) 50%,
+    rgba(5, 8, 16, 1) 100%
+  );
+}
+
+/* Hadal zone - the deepest deep with bioluminescent hints */
+[data-theme="abyssal"] .depth-hadal {
+  background: 
+    radial-gradient(ellipse at 30% 20%, rgba(0, 212, 170, 0.03) 0%, transparent 40%),
+    radial-gradient(ellipse at 70% 80%, rgba(100, 181, 246, 0.02) 0%, transparent 35%),
+    linear-gradient(180deg, #050810 0%, #0a0f18 100%);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CREATURE EFFECTS - Specific bioluminescent organisms
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Jellyfish - pulsing, ethereal */
+@keyframes jellyfish-pulse {
+  0%, 100% { 
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% { 
+    transform: scale(1.02);
+    opacity: 1;
+  }
+}
+
+[data-theme="abyssal"] .creature-jellyfish {
+  animation: jellyfish-pulse 3s ease-in-out infinite;
+  box-shadow: 
+    0 0 30px rgba(0, 212, 170, 0.4),
+    inset 0 0 20px rgba(0, 212, 170, 0.1);
+  border: 1px solid rgba(0, 212, 170, 0.2);
+}
+
+/* Anglerfish lure - dangerous attraction */
+@keyframes lure-flicker {
+  0%, 90%, 100% { opacity: 1; }
+  92%, 94%, 96% { opacity: 0.4; }
+  93%, 95%, 97% { opacity: 1; }
+}
+
+[data-theme="abyssal"] .creature-lure {
+  animation: lure-flicker 4s ease-in-out infinite;
+  box-shadow: 
+    0 0 15px rgba(240, 180, 41, 0.6),
+    0 0 30px rgba(240, 180, 41, 0.3);
+}
+
+/* Dinoflagellates - sparkling points of light */
+@keyframes dino-sparkle {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+[data-theme="abyssal"] .creature-dino {
+  animation: dino-sparkle 2s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PRESSURE EFFECTS - The weight of the deep
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Heavy vignette - pressure closing in */
+[data-theme="abyssal"] .pressure-vignette {
+  box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.5);
+}
+
+/* Depth indicator - gradient showing descent */
+[data-theme="abyssal"] .depth-indicator {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 212, 170, 0.6) 0%,
+    rgba(0, 212, 170, 0.3) 30%,
+    rgba(100, 181, 246, 0.2) 70%,
+    rgba(5, 8, 16, 0) 100%
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ENHANCED FOCUS STATES - Underwater interaction feedback
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="abyssal"] *:focus-visible {
+  outline: none;
+  box-shadow: 
+    0 0 0 2px rgba(0, 212, 170, 0.5),
+    0 0 0 4px rgba(0, 212, 170, 0.2),
+    0 0 20px rgba(0, 212, 170, 0.3);
+}
+
+[data-theme="abyssal"] button:focus-visible,
+[data-theme="abyssal"] [role="button"]:focus-visible {
+  box-shadow: 
+    0 0 0 2px rgba(0, 212, 170, 0.6),
+    0 0 15px rgba(0, 212, 170, 0.4),
+    0 0 30px rgba(0, 212, 170, 0.2);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   LOADING STATES - Bioluminescent activity indication
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes bio-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+[data-theme="abyssal"] .bio-loading {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 212, 170, 0.1) 25%,
+    rgba(0, 212, 170, 0.3) 50%,
+    rgba(0, 212, 170, 0.1) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: bio-loading 2s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SPECIAL: BIOLUMINESCENT TRAIL - Cursor/interaction wake
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="abyssal"] .bio-trail {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="abyssal"] .bio-trail::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(0, 212, 170, 0.15) 0%,
+    transparent 50%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+[data-theme="abyssal"] .bio-trail:hover::after {
+  opacity: 1;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CELESTIAL THEME - Living Cosmic Nebula Experience
+   Designed by Don Norman
+   
+   "The cosmos is within us. We are made of star-stuff."
+   — Carl Sagan
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE LIVING BACKGROUND - This is where magic happens
+   
+   We layer multiple gradients to create depth:
+   1. Base void (solid dark)
+   2. Nebula clouds (radial gradients)
+   3. Cosmic dust (subtle color wisps)
+   4. Star suggestions (tiny bright points)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Apply the cosmic background to the root when Celestial is active */
+[data-theme="celestial"] {
+  background: 
+    /* Layer 5: Tiny star points - scattered across the void */
+    radial-gradient(1px 1px at 20% 30%, rgba(255, 255, 255, 0.8), transparent),
+    radial-gradient(1px 1px at 40% 70%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 65% 20%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 80% 50%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 10% 80%, rgba(255, 200, 255, 0.8), transparent),
+    radial-gradient(1.5px 1.5px at 90% 15%, rgba(200, 220, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 50% 90%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 30% 50%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 75% 85%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 5% 45%, rgba(255, 180, 255, 0.6), transparent),
+    
+    /* Layer 4: Distant nebula glow - magenta cloud */
+    radial-gradient(ellipse 80% 50% at 70% 20%, rgba(255, 110, 180, 0.08), transparent 60%),
+    
+    /* Layer 3: Secondary nebula - violet drift */
+    radial-gradient(ellipse 60% 80% at 20% 80%, rgba(168, 130, 255, 0.1), transparent 50%),
+    
+    /* Layer 2: Primary nebula cloud - the heart of the cosmos */
+    radial-gradient(ellipse 100% 60% at 50% 50%, rgba(120, 80, 180, 0.12), transparent 70%),
+    
+    /* Layer 1: Deep cosmic void base */
+    linear-gradient(180deg, #080510 0%, #0a0815 50%, #0d0a1a 100%);
+  
+  background-attachment: fixed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ANIMATED NEBULA OVERLAY - Visible cosmic movement using pseudo-element
+   
+   The base background is static. We overlay animated nebula clouds using
+   ::before to create the drifting effect. This works because pseudo-elements
+   can be animated independently of background-attachment: fixed.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes nebula-drift {
+  0%, 100% {
+    opacity: 0.7;
+    transform: translateX(0%) translateY(0%) scale(1);
+  }
+  25% {
+    opacity: 1;
+    transform: translateX(3%) translateY(-2%) scale(1.03);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translateX(-2%) translateY(3%) scale(0.97);
+  }
+  75% {
+    opacity: 0.9;
+    transform: translateX(-3%) translateY(-2%) scale(1.02);
+  }
+}
+
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Animated nebula overlay - visible drift effect */
+[data-theme="celestial"].celestial-animated::before {
+  content: '';
+  position: fixed;
+  top: -10%;
+  left: -10%;
+  right: -10%;
+  bottom: -10%;
+  pointer-events: none;
+  z-index: 1;
+  background: 
+    /* Drifting nebula clouds - MORE PROMINENT */
+    radial-gradient(ellipse 70% 50% at 30% 30%, rgba(255, 110, 180, 0.35), transparent 50%),
+    radial-gradient(ellipse 60% 70% at 70% 60%, rgba(168, 130, 255, 0.3), transparent 50%),
+    radial-gradient(ellipse 50% 60% at 50% 80%, rgba(139, 233, 253, 0.2), transparent 50%);
+  animation: nebula-drift 20s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+/* Twinkling star overlay */
+[data-theme="celestial"].celestial-animated::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: 
+    /* Brighter stars */
+    radial-gradient(2.5px 2.5px at 15% 25%, rgba(255, 255, 255, 1), transparent),
+    radial-gradient(2.5px 2.5px at 85% 45%, rgba(255, 200, 255, 1), transparent),
+    radial-gradient(2px 2px at 45% 75%, rgba(200, 220, 255, 1), transparent),
+    radial-gradient(2.5px 2.5px at 70% 15%, rgba(255, 255, 255, 0.95), transparent),
+    radial-gradient(2px 2px at 25% 55%, rgba(255, 180, 255, 1), transparent),
+    radial-gradient(3px 3px at 60% 35%, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(2px 2px at 35% 90%, rgba(200, 255, 255, 0.95), transparent),
+    radial-gradient(2.5px 2.5px at 90% 80%, rgba(255, 220, 255, 0.9), transparent);
+  animation: star-twinkle 3s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   NEBULA PANEL BACKGROUNDS - Surfaces with cosmic depth
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="celestial"] .nebula-panel {
+  background: 
+    radial-gradient(ellipse 120% 80% at 80% 20%, rgba(255, 110, 180, 0.05), transparent 50%),
+    radial-gradient(ellipse 80% 120% at 20% 80%, rgba(168, 130, 255, 0.05), transparent 50%),
+    linear-gradient(135deg, rgba(26, 18, 40, 0.95) 0%, rgba(14, 10, 24, 0.98) 100%);
+  border: 1px solid rgba(168, 130, 255, 0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+[data-theme="celestial"] .nebula-panel-intense {
+  background: 
+    radial-gradient(ellipse 100% 60% at 70% 30%, rgba(255, 110, 180, 0.1), transparent 40%),
+    radial-gradient(ellipse 60% 100% at 30% 70%, rgba(139, 233, 253, 0.06), transparent 40%),
+    linear-gradient(145deg, rgba(26, 18, 40, 0.9) 0%, rgba(20, 14, 32, 0.95) 100%);
+  border: 1px solid rgba(255, 110, 180, 0.15);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   STELLAR GLOW EFFECTS - Because stars SHINE
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="celestial"] .star-glow {
+  box-shadow: 
+    0 0 20px rgba(255, 110, 180, 0.4),
+    0 0 40px rgba(255, 110, 180, 0.2),
+    0 0 60px rgba(168, 130, 255, 0.15);
+}
+
+[data-theme="celestial"] .star-glow-intense {
+  box-shadow: 
+    0 0 10px rgba(255, 255, 255, 0.3),
+    0 0 20px rgba(255, 110, 180, 0.5),
+    0 0 40px rgba(255, 110, 180, 0.3),
+    0 0 80px rgba(168, 130, 255, 0.2);
+}
+
+/* Supernova text glow */
+[data-theme="celestial"] .supernova-text {
+  text-shadow: 
+    0 0 10px rgba(255, 110, 180, 0.8),
+    0 0 20px rgba(255, 110, 180, 0.5),
+    0 0 40px rgba(255, 110, 180, 0.3),
+    0 0 80px rgba(168, 130, 255, 0.2);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COSMIC ANIMATIONS - The universe never stands still
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Stellar pulse - like a variable star */
+@keyframes stellar-pulse {
+  0%, 100% { 
+    box-shadow: 
+      0 0 15px rgba(255, 110, 180, 0.4),
+      0 0 30px rgba(255, 110, 180, 0.2);
+    filter: brightness(1);
+  }
+  50% { 
+    box-shadow: 
+      0 0 25px rgba(255, 110, 180, 0.6),
+      0 0 50px rgba(255, 110, 180, 0.3),
+      0 0 80px rgba(168, 130, 255, 0.15);
+    filter: brightness(1.15);
+  }
+}
+
+[data-theme="celestial"] .stellar-pulse {
+  animation: stellar-pulse 3s ease-in-out infinite;
+}
+
+/* Cosmic twinkle - star flicker effect */
+@keyframes cosmic-twinkle {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  25% { opacity: 1; transform: scale(1.1); }
+  50% { opacity: 0.8; transform: scale(0.95); }
+  75% { opacity: 1; transform: scale(1.05); }
+}
+
+[data-theme="celestial"] .cosmic-twinkle {
+  animation: cosmic-twinkle 4s ease-in-out infinite;
+}
+
+/* Warp speed loading effect */
+@keyframes warp-loading {
+  0% {
+    background-position: 200% 0;
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    background-position: -200% 0;
+    opacity: 0.5;
+  }
+}
+
+[data-theme="celestial"] .warp-loading {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 110, 180, 0.15) 20%,
+    rgba(139, 233, 253, 0.2) 50%,
+    rgba(255, 110, 180, 0.15) 80%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: warp-loading 2s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   AURORA RIBBONS - Northern lights effect for special elements
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes aurora-ribbon {
+  0%, 100% {
+    background-position: 0% 50%;
+    opacity: 0.6;
+  }
+  25% {
+    opacity: 0.8;
+  }
+  50% {
+    background-position: 100% 50%;
+    opacity: 0.7;
+  }
+  75% {
+    opacity: 0.9;
+  }
+}
+
+[data-theme="celestial"] .aurora-ribbon {
+  background: linear-gradient(
+    90deg,
+    rgba(139, 233, 253, 0.3) 0%,
+    rgba(255, 110, 180, 0.4) 25%,
+    rgba(168, 130, 255, 0.35) 50%,
+    rgba(80, 250, 123, 0.3) 75%,
+    rgba(139, 233, 253, 0.3) 100%
+  );
+  background-size: 300% 100%;
+  animation: aurora-ribbon 8s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COSMIC BORDERS - Edges that shimmer
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes border-shimmer {
+  0%, 100% {
+    border-color: rgba(168, 130, 255, 0.2);
+  }
+  50% {
+    border-color: rgba(255, 110, 180, 0.3);
+  }
+}
+
+[data-theme="celestial"] .cosmic-border {
+  border: 1px solid rgba(168, 130, 255, 0.2);
+  animation: border-shimmer 4s ease-in-out infinite;
+}
+
+/* Gradient border effect for special elements */
+[data-theme="celestial"] .nebula-border {
+  position: relative;
+  background: linear-gradient(135deg, #1a1228, #0e0a18);
+  border-radius: var(--theme-radius-lg);
+}
+
+[data-theme="celestial"] .nebula-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 110, 180, 0.4) 0%,
+    rgba(168, 130, 255, 0.3) 50%,
+    rgba(139, 233, 253, 0.3) 100%
+  );
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
+}
+
+[data-theme="celestial"] .nebula-border:hover::before {
+  opacity: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ENHANCED FOCUS STATES - Cosmic attention
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="celestial"] *:focus-visible {
+  outline: none;
+  box-shadow: 
+    0 0 0 2px rgba(255, 110, 180, 0.5),
+    0 0 0 4px rgba(168, 130, 255, 0.25),
+    0 0 20px rgba(255, 110, 180, 0.3);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SPACE STATION VIEWPORT - Glass panels in space
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="celestial"] .viewport-glass {
+  background: 
+    radial-gradient(ellipse at 50% 0%, rgba(168, 130, 255, 0.05), transparent 60%),
+    rgba(14, 10, 24, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(168, 130, 255, 0.1);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SHOOTING STAR - For notifications and alerts
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes shooting-star {
+  0% {
+    transform: translateX(-100%) translateY(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(200%) translateY(10px);
+    opacity: 0;
+  }
+}
+
+[data-theme="celestial"] .shooting-star {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="celestial"] .shooting-star::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 30%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.8),
+    rgba(255, 110, 180, 0.6),
+    transparent
+  );
+  animation: shooting-star 3s ease-in-out infinite;
+  animation-delay: 2s;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TRANSPARENT WRAPPER LAYERS - Let the cosmic background shine through
+   
+   The animated gradient is on <html>, but body and .bg-background elements
+   sit on top of it. We need to make them transparent so the stars show.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Make body transparent so html gradient shows through */
+[data-theme="celestial"] body {
+  background-color: transparent !important;
+  background: transparent !important;
+  position: relative;
+  z-index: 10;
+}
+
+/* Make the main layout wrapper transparent */
+[data-theme="celestial"] .bg-background {
+  background-color: transparent !important;
+}
+
+/* Ensure #root doesn't block either */
+[data-theme="celestial"] #root {
+  background: transparent !important;
+  position: relative;
+  z-index: 10;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EMBER THEME - Volcanic Magma Fissure Experience
+   Designed by Don Norman
+   
+   "In the heart of the volcano, rock becomes light."
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE VOLCANIC BACKGROUND - Cracked crust with magma beneath
+   
+   This creates the illusion of a dark volcanic surface with glowing
+   fissures of magma bleeding through from below.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="ember"] {
+  background: 
+    /* Layer 4: Ember sparks - floating ash particles */
+    radial-gradient(1px 1px at 15% 25%, rgba(255, 147, 41, 0.6), transparent),
+    radial-gradient(1.5px 1.5px at 85% 15%, rgba(255, 107, 53, 0.5), transparent),
+    radial-gradient(1px 1px at 45% 75%, rgba(255, 68, 68, 0.4), transparent),
+    radial-gradient(1px 1px at 70% 60%, rgba(255, 147, 41, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 25% 85%, rgba(255, 107, 53, 0.4), transparent),
+    radial-gradient(1px 1px at 90% 45%, rgba(255, 68, 68, 0.3), transparent),
+    
+    /* Layer 3: Major fissure - diagonal crack with intense glow */
+    linear-gradient(
+      135deg,
+      transparent 0%,
+      transparent 45%,
+      rgba(255, 68, 68, 0.03) 46%,
+      rgba(255, 107, 53, 0.08) 48%,
+      rgba(255, 147, 41, 0.12) 50%,
+      rgba(255, 107, 53, 0.08) 52%,
+      rgba(255, 68, 68, 0.03) 54%,
+      transparent 55%,
+      transparent 100%
+    ),
+    
+    /* Layer 2: Secondary fissures - smaller cracks */
+    linear-gradient(
+      -45deg,
+      transparent 0%,
+      transparent 30%,
+      rgba(255, 107, 53, 0.04) 31%,
+      rgba(255, 147, 41, 0.08) 32%,
+      rgba(255, 107, 53, 0.04) 33%,
+      transparent 34%,
+      transparent 65%,
+      rgba(255, 68, 68, 0.03) 66%,
+      rgba(255, 107, 53, 0.06) 67%,
+      rgba(255, 68, 68, 0.03) 68%,
+      transparent 69%,
+      transparent 100%
+    ),
+    
+    /* Layer 1: Deep heat glow from below */
+    radial-gradient(ellipse 80% 60% at 30% 70%, rgba(255, 68, 68, 0.06), transparent 50%),
+    radial-gradient(ellipse 60% 80% at 75% 30%, rgba(255, 107, 53, 0.05), transparent 50%),
+    
+    /* Base: Volcanic rock gradient */
+    linear-gradient(180deg, #0d0a09 0%, #0f0c0a 30%, #12100e 70%, #0d0a09 100%);
+  
+  background-attachment: fixed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   MAGMA PULSE ANIMATION - The earth breathes with visible glow
+   
+   Using pseudo-elements for visible pulsing magma glow effect.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes magma-pulse {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes ember-float {
+  0%, 100% {
+    opacity: 0.6;
+    transform: translateY(0) translateX(0);
+  }
+  25% {
+    opacity: 1;
+    transform: translateY(-8px) translateX(3px);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateY(-3px) translateX(-4px);
+  }
+  75% {
+    opacity: 1;
+    transform: translateY(-12px) translateX(2px);
+  }
+}
+
+/* Pulsing magma glow overlay */
+[data-theme="ember"].ember-animated::before {
+  content: '';
+  position: fixed;
+  top: -10%;
+  left: -10%;
+  right: -10%;
+  bottom: -10%;
+  pointer-events: none;
+  z-index: 1;
+  background: 
+    /* Pulsing magma pools - MORE PROMINENT */
+    radial-gradient(ellipse 60% 40% at 20% 80%, rgba(255, 107, 53, 0.45), transparent 50%),
+    radial-gradient(ellipse 50% 50% at 80% 70%, rgba(255, 68, 68, 0.4), transparent 50%),
+    radial-gradient(ellipse 70% 45% at 50% 90%, rgba(255, 147, 41, 0.35), transparent 50%),
+    radial-gradient(ellipse 40% 35% at 65% 85%, rgba(255, 80, 40, 0.3), transparent 50%);
+  animation: magma-pulse 4s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+/* Floating ember particles */
+[data-theme="ember"].ember-animated::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: 
+    /* Brighter embers */
+    radial-gradient(4px 4px at 15% 60%, rgba(255, 147, 41, 1), transparent),
+    radial-gradient(3px 3px at 85% 40%, rgba(255, 107, 53, 1), transparent),
+    radial-gradient(3.5px 3.5px at 45% 70%, rgba(255, 68, 68, 0.95), transparent),
+    radial-gradient(3px 3px at 70% 80%, rgba(255, 147, 41, 1), transparent),
+    radial-gradient(4px 4px at 25% 45%, rgba(255, 107, 53, 0.9), transparent),
+    radial-gradient(3px 3px at 55% 25%, rgba(255, 180, 60, 0.95), transparent),
+    radial-gradient(3.5px 3.5px at 80% 55%, rgba(255, 100, 50, 0.9), transparent),
+    radial-gradient(3px 3px at 10% 30%, rgba(255, 147, 41, 0.85), transparent);
+  animation: ember-float 5s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   VOLCANIC PANEL BACKGROUNDS - Surfaces radiating heat
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="ember"] .volcanic-panel {
+  background: 
+    radial-gradient(ellipse 100% 80% at 80% 90%, rgba(255, 107, 53, 0.04), transparent 50%),
+    linear-gradient(135deg, rgba(32, 26, 23, 0.95) 0%, rgba(20, 17, 16, 0.98) 100%);
+  border: 1px solid rgba(255, 107, 53, 0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+[data-theme="ember"] .volcanic-panel-hot {
+  background: 
+    radial-gradient(ellipse 80% 60% at 50% 100%, rgba(255, 107, 53, 0.1), transparent 60%),
+    linear-gradient(180deg, rgba(32, 26, 23, 0.9) 0%, rgba(26, 22, 20, 0.95) 100%);
+  border: 1px solid rgba(255, 107, 53, 0.15);
+  box-shadow: 
+    inset 0 -1px 0 rgba(255, 107, 53, 0.1),
+    0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   EMBER GLOW EFFECTS - Fire in the UI
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="ember"] .ember-glow {
+  box-shadow: 
+    0 0 15px rgba(255, 107, 53, 0.4),
+    0 0 30px rgba(255, 107, 53, 0.2),
+    0 0 45px rgba(255, 68, 68, 0.1);
+}
+
+[data-theme="ember"] .ember-glow-intense {
+  box-shadow: 
+    0 0 10px rgba(255, 147, 41, 0.5),
+    0 0 20px rgba(255, 107, 53, 0.4),
+    0 0 40px rgba(255, 107, 53, 0.25),
+    0 0 60px rgba(255, 68, 68, 0.15);
+}
+
+/* Molten text effect */
+[data-theme="ember"] .molten-text {
+  background: linear-gradient(
+    180deg,
+    #ffb347 0%,
+    #ff6b35 40%,
+    #ff4444 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 30px rgba(255, 107, 53, 0.5);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FIRE ANIMATIONS - Because fire never stops moving
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Flickering flame effect */
+@keyframes flame-flicker {
+  0%, 100% { 
+    box-shadow: 
+      0 0 15px rgba(255, 107, 53, 0.5),
+      0 0 30px rgba(255, 107, 53, 0.25);
+    opacity: 1;
+  }
+  25% { 
+    box-shadow: 
+      0 0 20px rgba(255, 147, 41, 0.6),
+      0 0 35px rgba(255, 107, 53, 0.3);
+    opacity: 0.95;
+  }
+  50% { 
+    box-shadow: 
+      0 0 12px rgba(255, 68, 68, 0.5),
+      0 0 25px rgba(255, 107, 53, 0.2);
+    opacity: 1;
+  }
+  75% { 
+    box-shadow: 
+      0 0 18px rgba(255, 107, 53, 0.55),
+      0 0 32px rgba(255, 68, 68, 0.25);
+    opacity: 0.97;
+  }
+}
+
+[data-theme="ember"] .flame-flicker {
+  animation: flame-flicker 2s ease-in-out infinite;
+}
+
+/* Rising heat shimmer */
+@keyframes heat-rise {
+  0%, 100% {
+    transform: translateY(0) scaleX(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-3px) scaleX(1.02);
+    opacity: 0.8;
+  }
+}
+
+[data-theme="ember"] .heat-shimmer {
+  animation: heat-rise 3s ease-in-out infinite;
+}
+
+/* Ember float - sparks rising */
+@keyframes ember-float {
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-20px) translateX(5px);
+    opacity: 0;
+  }
+}
+
+[data-theme="ember"] .ember-spark {
+  animation: ember-float 2s ease-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   LAVA FLOW GRADIENT - For progress bars and loading states
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes lava-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+[data-theme="ember"] .lava-flow {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 68, 68, 0.3) 0%,
+    rgba(255, 107, 53, 0.5) 25%,
+    rgba(255, 147, 41, 0.6) 50%,
+    rgba(255, 107, 53, 0.5) 75%,
+    rgba(255, 68, 68, 0.3) 100%
+  );
+  background-size: 200% 100%;
+  animation: lava-flow 3s linear infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COOLING CRUST - Borders that look like solidifying lava
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="ember"] .cooling-border {
+  position: relative;
+  border: 1px solid rgba(255, 107, 53, 0.2);
+}
+
+[data-theme="ember"] .cooling-border::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 107, 53, 0.3) 20%,
+    rgba(255, 147, 41, 0.4) 50%,
+    rgba(255, 107, 53, 0.3) 80%,
+    transparent 100%
+  );
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+[data-theme="ember"] .cooling-border:hover::after {
+  opacity: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   VOLCANIC GLASS (OBSIDIAN) SURFACES
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="ember"] .obsidian-surface {
+  background: 
+    linear-gradient(135deg, 
+      rgba(40, 34, 32, 0.9) 0%, 
+      rgba(26, 22, 20, 0.95) 50%,
+      rgba(32, 26, 23, 0.9) 100%
+    );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 107, 53, 0.08);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.02),
+    0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ENHANCED FOCUS STATES - Fire draws attention
+   ───────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="ember"] *:focus-visible {
+  outline: none;
+  box-shadow: 
+    0 0 0 2px rgba(255, 107, 53, 0.5),
+    0 0 0 4px rgba(255, 68, 68, 0.2),
+    0 0 15px rgba(255, 107, 53, 0.4);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ERUPTION EFFECT - For notifications and alerts
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes eruption-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 
+      0 0 20px rgba(255, 107, 53, 0.4),
+      0 0 40px rgba(255, 68, 68, 0.2);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 
+      0 0 30px rgba(255, 147, 41, 0.5),
+      0 0 60px rgba(255, 107, 53, 0.3),
+      0 0 90px rgba(255, 68, 68, 0.15);
+  }
+}
+
+[data-theme="ember"] .eruption-pulse {
+  animation: eruption-pulse 2s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SMOKE EFFECT - Subtle rising smoke overlay
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes smoke-rise {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 0.05;
+  }
+  50% {
+    opacity: 0.08;
+  }
+  100% {
+    transform: translateY(-100px) scale(1.5);
+    opacity: 0;
+  }
+}
+
+[data-theme="ember"] .smoke-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="ember"] .smoke-effect::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  background: radial-gradient(
+    ellipse 100% 100% at 50% 100%,
+    rgba(100, 80, 70, 0.1) 0%,
+    transparent 70%
+  );
+  animation: smoke-rise 8s ease-out infinite;
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TRANSPARENT WRAPPER LAYERS - Let the volcanic background shine through
+   
+   The animated gradient is on <html>, but body and .bg-background elements
+   sit on top of it. We need to make them transparent so the fire shows.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Make body transparent so html gradient shows through */
+[data-theme="ember"] body {
+  background-color: transparent !important;
+  background: transparent !important;
+  position: relative;
+  z-index: 10;
+}
+
+/* Make the main layout wrapper transparent */
+[data-theme="ember"] .bg-background {
+  background-color: transparent !important;
+}
+
+/* Ensure #root doesn't block either */
+[data-theme="ember"] #root {
+  background: transparent !important;
+  position: relative;
+  z-index: 10;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANIMATED THEME BACKGROUND COMPATIBILITY
+   
+   Themes like Celestial and Ember have layered gradient backgrounds applied
+   to the root <html> element. Specific surfaces should retain their colors
+   for proper visual hierarchy.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Ensure specific surfaces still have their background colors */
+[data-theme="celestial"] .bg-secondary,
+[data-theme="celestial"] .bg-tertiary,
+[data-theme="celestial"] .bg-surface {
+  background-color: var(--theme-surface);
+}
+
+[data-theme="ember"] .bg-secondary,
+[data-theme="ember"] .bg-tertiary,
+[data-theme="ember"] .bg-surface {
+  background-color: var(--theme-surface);
+}

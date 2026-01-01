@@ -2,8 +2,14 @@
 
 /**
  * Supported AI provider identifiers
+ * - anthropic: Anthropic Claude direct API
+ * - gemini: Google Gemini API
+ * - ollama: Local Ollama server (no API key)
+ * - openai: OpenAI direct API
+ * - github: GitHub Models/Copilot API (uses GitHub PAT)
+ * - mistral: Mistral AI direct API
  */
-export type ProviderId = 'anthropic' | 'gemini' | 'ollama' | 'openai' | 'brave-search'
+export type ProviderId = 'anthropic' | 'gemini' | 'ollama' | 'openai' | 'github' | 'mistral'
 
 /**
  * Individual provider credential

@@ -1,7 +1,9 @@
-import { Plus, MessageSquare, Trash2, Settings, MessagesSquare } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, Settings, MessagesSquare, History, BookOpen, PanelLeftClose, PanelLeft } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '../lib/utils'
 import { Conversation } from '../types'
+import { useAgentContext } from '../contexts/AgentContext'
+import { AgentList } from './agent'
 import logo from '../assets/logo.png'
 
 interface SidebarProps {
@@ -12,27 +14,65 @@ interface SidebarProps {
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
   onSettings: () => void
+  // Phase 5: Session resumption
+  onResumeSession?: () => void
+  // Phase 5: Notebooks panel
+  onOpenNotebooks?: () => void
 }
 
-function Logo() {
+// Tooltip component for collapsed state
+function Tooltip({ children, label, show }: { children: React.ReactNode; label: string; show: boolean }) {
+  if (!show) return <>{children}</>
+  
   return (
-    <div className="flex items-center gap-3 px-2">
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-black/20 border border-white/10">
-        <img src={logo} alt="ArborChat" className="w-full h-full object-cover" />
-      </div>
-      <div className="flex flex-col">
-        <span className="text-white font-bold text-base tracking-tight leading-tight">
-          ArborChat
-        </span>
-        <span className="text-text-muted text-[10px] uppercase tracking-wider font-medium leading-tight">
-          Threaded AI
-        </span>
+    <div className="relative group">
+      {children}
+      <div className={cn(
+        "absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50",
+        "px-2 py-1 rounded-md bg-secondary text-text-normal text-xs font-medium whitespace-nowrap",
+        "opacity-0 group-hover:opacity-100 pointer-events-none",
+        "transition-opacity duration-150 shadow-lg border border-white/10"
+      )}>
+        {label}
       </div>
     </div>
   )
 }
 
-function EmptyConversations() {
+function Logo({ collapsed }: { collapsed: boolean }) {
+  return (
+    <div className={cn(
+      "flex items-center gap-3",
+      collapsed ? "justify-center px-0" : "px-2"
+    )}>
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-black/20 border border-white/10 shrink-0">
+        <img src={logo} alt="ArborChat" className="w-full h-full object-cover" />
+      </div>
+      {!collapsed && (
+        <div className="flex flex-col">
+          <span className="text-white font-bold text-base tracking-tight leading-tight">
+            ArborChat
+          </span>
+          <span className="text-text-muted text-[10px] uppercase tracking-wider font-medium leading-tight">
+            Threaded AI
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EmptyConversations({ collapsed }: { collapsed: boolean }) {
+  if (collapsed) {
+    return (
+      <div className="flex items-center justify-center py-6">
+        <div className="w-8 h-8 rounded-full bg-secondary/50 flex items-center justify-center">
+          <MessagesSquare size={14} className="text-text-muted" />
+        </div>
+      </div>
+    )
+  }
+  
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
       <div className="w-12 h-12 rounded-full bg-secondary/50 flex items-center justify-center mb-3">
@@ -44,18 +84,21 @@ function EmptyConversations() {
   )
 }
 
+
 function ConversationItem({
   conversation,
   isActive,
   onSelect,
   onDelete,
-  onRename
+  onRename,
+  collapsed
 }: {
   conversation: Conversation
   isActive: boolean
   onSelect: () => void
   onDelete: () => void
   onRename: (title: string) => void
+  collapsed: boolean
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(conversation.title)
@@ -69,6 +112,7 @@ function ConversationItem({
   }, [isEditing])
 
   const handleDoubleClick = (e: React.MouseEvent) => {
+    if (collapsed) return // Disable editing in collapsed mode
     e.stopPropagation()
     setEditValue(conversation.title)
     setIsEditing(true)
@@ -89,6 +133,37 @@ function ConversationItem({
       setEditValue(conversation.title)
       setIsEditing(false)
     }
+  }
+
+  if (collapsed) {
+    return (
+      <Tooltip label={conversation.title || 'New conversation'} show={true}>
+        <div
+          onClick={onSelect}
+          className={cn(
+            'group flex items-center justify-center p-2 rounded-lg cursor-pointer',
+            'transition-all duration-150',
+            isActive
+              ? 'bg-secondary text-text-normal shadow-sm'
+              : 'text-text-muted hover:text-text-normal hover:bg-secondary/40'
+          )}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+          aria-selected={isActive}
+          aria-label={conversation.title || 'New conversation'}
+        >
+          <div
+            className={cn(
+              'p-1.5 rounded-md transition-colors duration-150',
+              isActive ? 'bg-primary/20 text-primary' : 'text-text-muted group-hover:text-text-normal'
+            )}
+          >
+            <MessageSquare size={14} />
+          </div>
+        </div>
+      </Tooltip>
+    )
   }
 
   return (
@@ -161,6 +236,10 @@ function ConversationItem({
   )
 }
 
+
+// Storage key for collapsed state persistence
+const SIDEBAR_COLLAPSED_KEY = 'arborchat-sidebar-collapsed'
+
 export function Sidebar({
   conversations,
   activeId,
@@ -168,36 +247,96 @@ export function Sidebar({
   onNewChat,
   onDelete,
   onRename,
-  onSettings
+  onSettings,
+  onResumeSession,
+  onOpenNotebooks
 }: SidebarProps) {
+  // Collapsed state with localStorage persistence
+  const [collapsed, setCollapsed] = useState(() => {
+    const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    return stored === 'true'
+  })
+
+  // Persist collapsed state
+  const toggleCollapsed = () => {
+    const newState = !collapsed
+    setCollapsed(newState)
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newState))
+  }
+
+  // Get agent context for sidebar agent list
+  const { 
+    getAgentSummaries, 
+    state: agentState, 
+    setActiveAgent, 
+    removeAgent, 
+    togglePanel 
+  } = useAgentContext()
+
+  const agentSummaries = getAgentSummaries()
+
+  // Handle agent selection - opens panel and sets active
+  const handleSelectAgent = (agentId: string) => {
+    setActiveAgent(agentId)
+    togglePanel(true)
+  }
+
+  // Handle agent close
+  const handleCloseAgent = (agentId: string) => {
+    removeAgent(agentId)
+  }
+
+  // Handle agent retry - select and open panel to show retry button
+  const handleRetryAgent = (agentId: string) => {
+    setActiveAgent(agentId)
+    togglePanel(true)
+  }
+
   return (
-    <div className="flex flex-col w-72 bg-tertiary h-full border-r border-secondary/50 shrink-0">
+    <div className={cn(
+      "flex flex-col bg-tertiary h-full border-r border-secondary/50 shrink-0",
+      "transition-all duration-200 ease-in-out",
+      collapsed ? "w-16" : "w-72"
+    )}>
       {/* Header with Logo */}
-      <div className="p-4 border-b border-secondary/50">
-        <div className="drag-region mb-4">
-          <Logo />
+      <div className={cn(
+        "border-b border-secondary/50",
+        collapsed ? "p-2" : "p-4"
+      )}>
+        <div className={cn(
+          "drag-region",
+          collapsed ? "mb-2" : "mb-4"
+        )}>
+          <Logo collapsed={collapsed} />
         </div>
 
-        <button
-          onClick={onNewChat}
-          className={cn(
-            'w-full flex items-center justify-center gap-2',
-            'bg-primary hover:bg-primary/90 active:bg-primary/80',
-            'text-white font-medium text-sm',
-            'rounded-lg p-2.5',
-            'shadow-lg shadow-primary/20 hover:shadow-primary/30',
-            'transition-all duration-150',
-            'focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-tertiary',
-            'no-drag'
-          )}
-        >
-          <Plus size={16} strokeWidth={2.5} />
-          New Chat
-        </button>
+        <Tooltip label="New Chat" show={collapsed}>
+          <button
+            onClick={onNewChat}
+            className={cn(
+              'flex items-center justify-center gap-2',
+              'bg-primary hover:bg-primary/90 active:bg-primary/80',
+              'text-white font-medium text-sm',
+              'rounded-lg',
+              'shadow-lg shadow-primary/20 hover:shadow-primary/30',
+              'transition-all duration-150',
+              'focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-tertiary',
+              'no-drag',
+              collapsed ? 'w-10 h-10 p-0' : 'w-full p-2.5'
+            )}
+            aria-label="New Chat"
+          >
+            <Plus size={16} strokeWidth={2.5} />
+            {!collapsed && <span>New Chat</span>}
+          </button>
+        </Tooltip>
       </div>
 
       {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-secondary scrollbar-track-transparent">
+      <div className={cn(
+        "flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-secondary scrollbar-track-transparent",
+        collapsed ? "p-1" : "p-2"
+      )}>
         {conversations.length > 0 ? (
           <div className="space-y-0.5">
             {conversations.map((conv) => (
@@ -208,28 +347,108 @@ export function Sidebar({
                 onSelect={() => onSelect(conv.id)}
                 onDelete={() => onDelete(conv.id)}
                 onRename={(title) => onRename(conv.id, title)}
+                collapsed={collapsed}
               />
             ))}
           </div>
         ) : (
-          <EmptyConversations />
+          <EmptyConversations collapsed={collapsed} />
+        )}
+
+        {/* Agent List Section */}
+        {agentSummaries.length > 0 && !collapsed && (
+          <div className="border-t border-secondary/50 pt-2 mt-3">
+            <AgentList
+              agents={agentSummaries}
+              activeAgentId={agentState.activeAgentId}
+              onSelectAgent={handleSelectAgent}
+              onCloseAgent={handleCloseAgent}
+              onRetryAgent={handleRetryAgent}
+            />
+          </div>
         )}
       </div>
 
-      {/* Footer with Settings */}
-      <div className="p-2 border-t border-secondary/50">
-        <button
-          onClick={onSettings}
-          className={cn(
-            'w-full flex items-center gap-2 p-2.5 rounded-lg',
-            'text-text-muted hover:text-text-normal hover:bg-secondary/40',
-            'transition-colors duration-150',
-            'focus:outline-none focus:ring-2 focus:ring-primary/30'
-          )}
-        >
-          <Settings size={16} />
-          <span className="text-sm font-medium">Settings</span>
-        </button>
+      {/* Footer with Settings and Collapse Toggle */}
+      <div className={cn(
+        "border-t border-secondary/50 space-y-0.5",
+        collapsed ? "p-1" : "p-2"
+      )}>
+        {/* Notebooks Button */}
+        {onOpenNotebooks && (
+          <Tooltip label="Notebooks" show={collapsed}>
+            <button
+              onClick={onOpenNotebooks}
+              className={cn(
+                'flex items-center gap-2 rounded-lg',
+                'text-text-muted hover:text-amber-400 hover:bg-amber-500/10',
+                'transition-colors duration-150',
+                'focus:outline-none focus:ring-2 focus:ring-amber-500/30',
+                collapsed ? 'w-10 h-10 justify-center p-0' : 'w-full p-2.5'
+              )}
+              aria-label="Notebooks"
+            >
+              <BookOpen size={16} />
+              {!collapsed && <span className="text-sm font-medium">Notebooks</span>}
+            </button>
+          </Tooltip>
+        )}
+        
+        {/* Resume Session Button */}
+        {onResumeSession && (
+          <Tooltip label="Resume Session" show={collapsed}>
+            <button
+              onClick={onResumeSession}
+              className={cn(
+                'flex items-center gap-2 rounded-lg',
+                'text-text-muted hover:text-text-normal hover:bg-secondary/40',
+                'transition-colors duration-150',
+                'focus:outline-none focus:ring-2 focus:ring-primary/30',
+                collapsed ? 'w-10 h-10 justify-center p-0' : 'w-full p-2.5'
+              )}
+              aria-label="Resume Session"
+            >
+              <History size={16} />
+              {!collapsed && <span className="text-sm font-medium">Resume Session</span>}
+            </button>
+          </Tooltip>
+        )}
+        
+        {/* Settings Button */}
+        <Tooltip label="Settings" show={collapsed}>
+          <button
+            onClick={onSettings}
+            className={cn(
+              'flex items-center gap-2 rounded-lg',
+              'text-text-muted hover:text-text-normal hover:bg-secondary/40',
+              'transition-colors duration-150',
+              'focus:outline-none focus:ring-2 focus:ring-primary/30',
+              collapsed ? 'w-10 h-10 justify-center p-0' : 'w-full p-2.5'
+            )}
+            aria-label="Settings"
+          >
+            <Settings size={16} />
+            {!collapsed && <span className="text-sm font-medium">Settings</span>}
+          </button>
+        </Tooltip>
+
+        {/* Collapse Toggle Button */}
+        <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} show={collapsed}>
+          <button
+            onClick={toggleCollapsed}
+            className={cn(
+              'flex items-center gap-2 rounded-lg',
+              'text-text-muted hover:text-text-normal hover:bg-secondary/40',
+              'transition-colors duration-150',
+              'focus:outline-none focus:ring-2 focus:ring-primary/30',
+              collapsed ? 'w-10 h-10 justify-center p-0' : 'w-full p-2.5'
+            )}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+            {!collapsed && <span className="text-sm font-medium">Collapse</span>}
+          </button>
+        </Tooltip>
       </div>
     </div>
   )
