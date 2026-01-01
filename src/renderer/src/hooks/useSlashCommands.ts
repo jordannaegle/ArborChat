@@ -33,6 +33,7 @@ export interface SlashCommandState {
 interface UseSlashCommandsOptions {
   onActivatePersona: (id: string | null) => void
   onShowPersonaList: () => void
+  onCommitResult?: (result: { success: boolean; message?: string; error?: string }) => void
 }
 
 const INITIAL_STATE: SlashCommandState = {
@@ -44,7 +45,8 @@ const INITIAL_STATE: SlashCommandState = {
 
 export function useSlashCommands({
   onActivatePersona,
-  onShowPersonaList
+  onShowPersonaList,
+  onCommitResult
 }: UseSlashCommandsOptions) {
   const [personas, setPersonas] = useState<PersonaMetadata[]>([])
   const [state, setState] = useState<SlashCommandState>(INITIAL_STATE)
@@ -89,9 +91,46 @@ export function useSlashCommands({
         handler: () => {
           onActivatePersona(null)
         }
+      },
+      {
+        name: 'commit',
+        description: 'Commit all uncommitted changes from this session',
+        syntax: '/commit [message]',
+        icon: '📝',
+        handler: async (args: string) => {
+          try {
+            // Get the ArborChat project root
+            const workingDir = await window.api.git.getArborChatRoot()
+            
+            // Perform the commit with optional message
+            const message = args.trim() || undefined
+            const result = await window.api.git.commit(workingDir, message)
+            
+            if (onCommitResult) {
+              if (result.success) {
+                onCommitResult({
+                  success: true,
+                  message: `✅ Committed ${result.filesCommitted} file(s)\n\nCommit: ${result.commitHash}\nMessage: ${result.message}`
+                })
+              } else {
+                onCommitResult({
+                  success: false,
+                  error: result.error || 'Unknown error'
+                })
+              }
+            }
+          } catch (error) {
+            if (onCommitResult) {
+              onCommitResult({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to commit'
+              })
+            }
+          }
+        }
       }
     ],
-    [onActivatePersona, onShowPersonaList]
+    [onActivatePersona, onShowPersonaList, onCommitResult]
   )
 
   // Parse input for slash commands
@@ -277,9 +316,42 @@ export function useSlashCommands({
         }
       }
 
+      // Check for /commit [message]
+      if (fullCommand === 'commit' || fullCommand.startsWith('commit ')) {
+        const message = fullCommand.startsWith('commit ') ? fullCommand.slice(7).trim() : undefined
+        
+        try {
+          const workingDir = await window.api.git.getArborChatRoot()
+          const result = await window.api.git.commit(workingDir, message)
+          
+          if (onCommitResult) {
+            if (result.success) {
+              onCommitResult({
+                success: true,
+                message: `✅ Committed ${result.filesCommitted} file(s)\n\nCommit: ${result.commitHash}\nMessage: ${result.message}`
+              })
+            } else {
+              onCommitResult({
+                success: false,
+                error: result.error || 'Unknown error'
+              })
+            }
+          }
+          return true
+        } catch (error) {
+          if (onCommitResult) {
+            onCommitResult({
+              success: false,
+              error: error instanceof Error ? error.message : 'Failed to commit'
+            })
+          }
+          return true // Command was recognized, just failed
+        }
+      }
+
       return false
     },
-    [personas, onActivatePersona, onShowPersonaList]
+    [personas, onActivatePersona, onShowPersonaList, onCommitResult]
   )
 
   // Reset state

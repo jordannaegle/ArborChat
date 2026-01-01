@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, Key, Wrench, User, Bell } from 'lucide-react'
+import { X, Key, Wrench, User, Bell, Palette } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { APIKeysSection } from './sections/APIKeysSection'
+import { AppearanceSection } from './sections/AppearanceSection'
 import { ToolsSection } from './sections/ToolsSection'
 import { PersonasSection } from './sections/PersonasSection'
 import { NotificationsSection } from './sections/NotificationsSection'
 
-type SettingsSection = 'api-keys' | 'tools' | 'personas' | 'notifications'
+type SettingsSection = 'api-keys' | 'appearance' | 'tools' | 'personas' | 'notifications'
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -25,6 +26,12 @@ const MENU_ITEMS = [
     label: 'API Keys',
     icon: Key,
     description: 'Manage provider credentials'
+  },
+  {
+    id: 'appearance' as const,
+    label: 'Appearance',
+    icon: Palette,
+    description: 'Display preferences'
   },
   {
     id: 'tools' as const,
@@ -148,6 +155,7 @@ export function SettingsPanel({
             {activeSection === 'api-keys' && (
               <APIKeysSection selectedModel={selectedModel} onModelChange={onModelChange} />
             )}
+            {activeSection === 'appearance' && <AppearanceSection />}
             {activeSection === 'tools' && <ToolsSection />}
             {activeSection === 'personas' && (
               <PersonasSection

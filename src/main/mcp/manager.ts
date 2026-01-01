@@ -195,13 +195,20 @@ class MCPManager {
 
   /**
    * Get all available tools from all connected servers
+   * Deduplicates by tool name - first occurrence wins
    */
   getAvailableTools(): Array<ToolDefinition & { server: string }> {
     const allTools: Array<ToolDefinition & { server: string }> = []
+    const seenToolNames = new Set<string>()
 
     for (const [serverName, server] of this.servers) {
       if (server.connected) {
         for (const tool of server.tools) {
+          if (seenToolNames.has(tool.name)) {
+            console.warn(`[MCP] Duplicate tool name "${tool.name}" from server "${serverName}" - skipping (already provided by another server)`)
+            continue
+          }
+          seenToolNames.add(tool.name)
           allTools.push({
             ...tool,
             server: serverName

@@ -1,4 +1,5 @@
 export { APIKeysSection } from './APIKeysSection'
-export { ToolsSection } from './ToolsSection'
-export { PersonasSection } from './PersonasSection'
+export { AppearanceSection } from './AppearanceSection'
 export { NotificationsSection } from './NotificationsSection'
+export { PersonasSection } from './PersonasSection'
+export { ToolsSection } from './ToolsSection'

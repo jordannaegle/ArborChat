@@ -15,6 +15,7 @@ export interface StreamParams {
   window: BrowserWindow
   messages: ChatMessage[]
   modelId: string
+  enableTools?: boolean  // Enable native tool calling (if provider supports it)
 }
 
 /**

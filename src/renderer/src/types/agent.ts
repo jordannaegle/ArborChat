@@ -174,6 +174,16 @@ export interface CreateAgentOptions {
   includeFullConversation?: boolean
   includePersona?: boolean
   conversationMessages?: AgentMessage[]
+  
+  // Phase 4: Advanced capabilities
+  /** Auto-analyze project structure for context injection */
+  autoAnalyzeProject?: boolean
+  /** Token budget for context (default: 50000) */
+  contextTokenBudget?: number
+  /** Enable multi-file orchestration for complex refactoring */
+  enableMultiFileOrchestration?: boolean
+  /** Session ID to restore from checkpoint */
+  checkpointToRestore?: string
 }
 
 /**
@@ -216,6 +226,14 @@ export interface AgentTemplate {
   tags: string[]
   isBuiltIn: boolean                 // System templates vs user-created
   requiresDirectory?: boolean        // Whether a working directory must be selected
+  
+  // Phase 4: Advanced capabilities
+  /** Auto-analyze project structure for context injection */
+  autoAnalyzeProject?: boolean
+  /** Token budget for context (default: 50000) */
+  contextTokenBudget?: number
+  /** Enable multi-file orchestration for complex refactoring */
+  enableMultiFileOrchestration?: boolean
 }
 
 export type AgentTemplateCategory = 
@@ -253,4 +271,126 @@ export const DEFAULT_RETRY_CONFIG: AgentRetryConfig = {
   initialDelayMs: 1000,
   maxDelayMs: 30000,
   backoffMultiplier: 2
+}
+
+// ============================================================================
+// Phase: Agent Execution Monitoring & Diagnostics Types
+// ============================================================================
+
+/**
+ * Execution Phase - Granular execution state machine phases
+ * 
+ * State transitions:
+ * idle → streaming_ai → executing_tool → idle/waiting_approval/verifying_completion
+ */
+export type ExecutionPhase =
+  | 'idle'                 // Not actively processing
+  | 'streaming_ai'         // Receiving AI response chunks
+  | 'executing_tool'       // Running MCP tool call
+  | 'waiting_approval'     // Tool pending user approval
+  | 'verifying_completion' // Running completion checks
+
+/**
+ * Execution Activity - Real-time tracking of agent execution state
+ */
+export interface ExecutionActivity {
+  phase: ExecutionPhase
+  startedAt: number               // Timestamp when this phase started
+  toolName?: string               // If executing a tool
+  tokensSent?: number             // Estimated tokens in context
+  tokensReceived?: number         // Tokens received so far
+  lastProgressAt: number          // Last time progress was made
+  progressIndicator: string       // Human-readable activity description
+}
+
+/**
+ * Token Metrics - Context window utilization tracking
+ */
+export interface TokenMetrics {
+  contextUsed: number             // Estimated tokens in context
+  contextMax: number              // Model's max context
+  usagePercent: number            // contextUsed / contextMax
+  lastMessageTokens: number       // Tokens in the last message
+  estimatedRemaining: number      // Tokens available
+}
+
+/**
+ * Token Warning Level - Context window usage severity
+ */
+export type TokenWarningLevel = 'normal' | 'warning' | 'critical'
+
+/**
+ * Execution Diagnostics - Performance metrics for debugging
+ */
+export interface ExecutionDiagnostics {
+  loopIterations: number          // Number of agent loop iterations
+  toolCallsTotal: number          // Total tool calls attempted
+  toolCallsSuccessful: number     // Successful tool calls
+  toolCallsFailed: number         // Failed tool calls
+  averageToolDuration: number     // Average tool execution time (ms)
+  totalRuntime: number            // Total agent runtime (ms)
+  lastToolDurations: number[]     // Last N tool execution durations for averaging
+}
+
+/**
+ * Watchdog Configuration - Stall detection thresholds
+ */
+export interface WatchdogConfig {
+  /** Warn if no progress for this duration (ms) */
+  warnThreshold: number
+  /** Consider stalled if no progress for this duration (ms) */
+  stallThreshold: number
+  /** Maximum tool execution time before timeout (ms) */
+  toolTimeout: number
+  /** How often to check for stalls (ms) */
+  checkInterval: number
+}
+
+/**
+ * Default watchdog configuration
+ */
+export const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
+  warnThreshold: 30_000,    // 30 seconds
+  stallThreshold: 120_000,  // 2 minutes
+  toolTimeout: 300_000,     // 5 minutes
+  checkInterval: 5_000      // Check every 5 seconds
+}
+
+/**
+ * Model Context Limits - Maximum context window sizes by model
+ * These are approximate values - actual limits vary by API version
+ */
+export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  // Gemini models
+  'gemini-2.5-pro-preview-05-06': 1_048_576,
+  'gemini-2.5-flash-preview-05-20': 1_048_576,
+  'gemini-2.0-flash': 1_048_576,
+  'gemini-1.5-pro': 2_097_152,
+  'gemini-1.5-flash': 1_048_576,
+  
+  // Anthropic models
+  'claude-sonnet-4-20250514': 200_000,
+  'claude-3-5-sonnet-20241022': 200_000,
+  'claude-3-opus-20240229': 200_000,
+  'claude-3-haiku-20240307': 200_000,
+  
+  // OpenAI models
+  'gpt-4o': 128_000,
+  'gpt-4o-mini': 128_000,
+  'gpt-4-turbo': 128_000,
+  'gpt-4': 8_192,
+  
+  // DeepSeek models
+  'deepseek-r1': 128_000,
+  'deepseek-chat': 128_000,
+  
+  // Default fallback
+  'default': 100_000
+}
+
+/**
+ * Get context limit for a model
+ */
+export function getModelContextLimit(modelId: string): number {
+  return MODEL_CONTEXT_LIMITS[modelId] || MODEL_CONTEXT_LIMITS['default']
 }

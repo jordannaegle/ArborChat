@@ -27,6 +27,7 @@ import { NotebookViewer } from './NotebookViewer'
 import { CreateNotebookModal } from './CreateNotebookModal'
 import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp'
 import { NotebookListSkeleton } from './NotebookSkeleton'
+import { ResizablePanel } from '../shared'
 import type { NotebookSearchResult } from '../../types/notebook'
 
 interface NotebookSidebarProps {
@@ -70,6 +71,14 @@ export function NotebookSidebar({ isOpen, onClose }: NotebookSidebarProps) {
 
   // Refs for keyboard shortcuts
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Refresh notebooks when sidebar opens to catch any changes made elsewhere
+  useEffect(() => {
+    if (isOpen) {
+      console.log('[NotebookSidebar] Sidebar opened, refreshing notebooks...')
+      refresh()
+    }
+  }, [isOpen, refresh])
 
   // Effect to run search when debounced query changes
   useEffect(() => {
@@ -127,37 +136,44 @@ export function NotebookSidebar({ isOpen, onClose }: NotebookSidebarProps) {
     onNavigateBack: selectedNotebook ? handleBack : undefined
   }, isOpen)
 
-  // Collapsed state - show toggle button
-  if (!isOpen) {
-    return (
-      <button
-        onClick={onClose} // This toggles open
-        aria-label="Open Notebooks panel"
-        className={cn(
-          'fixed right-0 top-1/2 -translate-y-1/2 z-40',
-          'bg-tertiary border border-secondary border-r-0',
-          'rounded-l-lg p-2.5 hover:bg-secondary transition-colors',
-          'group'
-        )}
-        title="Open Notebooks"
-      >
-        <BookOpen className="w-5 h-5 text-text-muted group-hover:text-amber-400 transition-colors" aria-hidden="true" />
-      </button>
-    )
-  }
-
   return (
     <>
-      <div
-        className={cn(
-          'fixed right-0 top-0 h-full w-96 z-40',
-          'bg-tertiary border-l border-secondary',
-          'flex flex-col shadow-2xl',
-          'animate-in slide-in-from-right duration-200'
-        )}
-        role="complementary"
-        aria-label="Notebooks panel"
+      {/* Toggle button when closed */}
+      {!isOpen && (
+        <button
+          onClick={onClose} // This toggles open
+          aria-label="Open Notebooks panel"
+          className={cn(
+            'fixed right-0 top-1/2 -translate-y-1/2 z-40',
+            'bg-tertiary border border-secondary border-r-0',
+            'rounded-l-lg p-2.5 hover:bg-secondary transition-colors',
+            'group'
+          )}
+          title="Open Notebooks"
+        >
+          <BookOpen className="w-5 h-5 text-text-muted group-hover:text-amber-400 transition-colors" aria-hidden="true" />
+        </button>
+      )}
+
+      {/* Resizable Panel */}
+      <ResizablePanel
+        storageKey="notebook-sidebar"
+        defaultWidth={384}
+        minWidth={320}
+        maxWidth={700}
+        isOpen={isOpen}
+        className="fixed right-0 top-0 h-full z-40"
       >
+        <div
+          className={cn(
+            'h-full w-full',
+            'bg-tertiary border-l border-secondary',
+            'flex flex-col shadow-2xl',
+            'animate-in slide-in-from-right duration-200'
+          )}
+          role="complementary"
+          aria-label="Notebooks panel"
+        >
         {/* Header */}
         <div className="flex items-center justify-between p-3 border-b border-secondary bg-tertiary">
           <div className="flex items-center gap-2">
@@ -306,7 +322,8 @@ export function NotebookSidebar({ isOpen, onClose }: NotebookSidebarProps) {
 
         {/* Keyboard Shortcuts Help - only show in list view */}
         {!selectedNotebook && <KeyboardShortcutsHelp />}
-      </div>
+        </div>
+      </ResizablePanel>
 
       {/* Create Notebook Modal */}
       <CreateNotebookModal

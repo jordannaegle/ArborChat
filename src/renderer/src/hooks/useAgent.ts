@@ -76,10 +76,38 @@ export function useAgent(): UseAgentResult {
   // Create a new agent - properly aligned with Agent type
   const createAgent = useCallback((options: CreateAgentOptions): Agent => {
     const now = Date.now()
+    const workingDirectory = options.workingDirectory || ''
+    
+    // Build working directory context for system prompt
+    const workingDirContext = workingDirectory 
+      ? `
+
+## WORKING DIRECTORY
+
+Your working directory is: ${workingDirectory}
+
+IMPORTANT FILE OPERATION RULES:
+- When searching for files, ALWAYS start in ${workingDirectory}
+- When reading files without absolute paths, look in ${workingDirectory}
+- When creating files, create them in ${workingDirectory} unless otherwise specified
+- Always use absolute paths starting with ${workingDirectory} for clarity
+- NEVER search from "/" or use recursive searches on the root filesystem
+
+For example, to read package.json:
+- CORRECT: path: "${workingDirectory}/package.json"
+- WRONG: path: "/" or path: "package.json" or searching from root
+
+When using search tools:
+- CORRECT: start_search with path: "${workingDirectory}"
+- WRONG: start_search with path: "/"
+`
+      : ''
+    
+    console.log('[Agent] Creating agent with working directory:', workingDirectory)
     
     // Build system prompt for the agent
     const basePrompt = `You are an autonomous coding agent within ArborChat, a desktop Electron application. Your task is to complete the user's request by ACTUALLY EXECUTING TOOLS - not by describing what you would do.
-
+${workingDirContext}
 ## CRITICAL ANTI-HALLUCINATION RULES
 
 **YOU MUST ACTUALLY USE TOOLS TO DO WORK. NEVER CLAIM TO HAVE DONE SOMETHING WITHOUT TOOL EVIDENCE.**
@@ -123,6 +151,11 @@ You have access to MCP tools for file operations and command execution.`
     const fullSystemPrompt = connected && mcpSystemPrompt 
       ? `${basePrompt}\n\n${mcpSystemPrompt}`
       : basePrompt
+    
+    // Diagnostic logging for working directory injection
+    console.log('[Agent] System prompt length:', fullSystemPrompt.length)
+    console.log('[Agent] System prompt includes workingDirectory:', 
+      workingDirectory ? fullSystemPrompt.includes(workingDirectory) : 'N/A (no working dir set)')
     
     // Build agent context from options
     const agentContext: AgentContext = {

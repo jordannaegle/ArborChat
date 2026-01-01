@@ -36,6 +36,13 @@ import {
   GitHubStatus,
   GitHubConfigureResult
 } from './types'
+// Internal Arbor tools
+import {
+  isArborInternalTool,
+  getArborInternalTools,
+  executeArborMemoryTool
+} from './tools'
+import type { ArborMemoryToolParams } from './tools'
 
 // Pending tool calls awaiting user approval
 const pendingCalls = new Map<string, PendingToolCall>()
@@ -69,9 +76,17 @@ export function setupMCPHandlers(): void {
     }
   })
 
-  // Get available tools
+  // Get available tools (includes internal Arbor tools)
   ipcMain.handle('mcp:get-tools', async () => {
-    return mcpManager.getAvailableTools()
+    const mcpTools = mcpManager.getAvailableTools()
+    
+    // Add internal Arbor tools
+    const internalTools = getArborInternalTools().map(tool => ({
+      ...tool,
+      server: 'arbor' // Internal tools use 'arbor' as the server name
+    }))
+    
+    return [...internalTools, ...mcpTools]
   })
 
   // Get connection status
@@ -93,11 +108,58 @@ export function setupMCPHandlers(): void {
         args: Record<string, unknown>
         explanation?: string
         skipApproval?: boolean // Skip approval if frontend already approved
+        context?: { conversationId?: string; projectPath?: string } // Context for internal tools
       }
     ) => {
-      const { serverName, toolName, args, explanation, skipApproval } = request
+      const { serverName, toolName, args, explanation, skipApproval, context } = request
       const id = randomUUID()
       const config = mcpManager.getConfig()
+
+      // Check if tool is blocked
+      if (isToolBlocked(toolName, config)) {
+        return {
+          id,
+          success: false,
+          error: `Tool '${toolName}' is blocked by configuration`,
+          blocked: true
+        }
+      }
+
+      // Handle internal Arbor tools (always auto-approve, execute directly)
+      if (isArborInternalTool(toolName) || serverName === 'arbor') {
+        console.log(`[MCP IPC] Executing internal Arbor tool: ${toolName}`)
+        const startTime = Date.now()
+
+        try {
+          let result: unknown
+          
+          if (toolName === 'arbor_store_memory') {
+            result = await executeArborMemoryTool(
+              args as unknown as ArborMemoryToolParams,
+              context || {}
+            )
+          } else {
+            throw new Error(`Unknown internal tool: ${toolName}`)
+          }
+
+          return {
+            id,
+            success: true,
+            approved: true,
+            autoApproved: true,
+            result,
+            duration: Date.now() - startTime
+          }
+        } catch (error) {
+          return {
+            id,
+            success: false,
+            approved: true,
+            autoApproved: true,
+            error: String(error)
+          }
+        }
+      }
 
       // Check if tool is blocked
       if (isToolBlocked(toolName, config)) {
@@ -434,11 +496,18 @@ export function setupMCPHandlers(): void {
     return { success: true }
   })
 
-  // Get tool system prompt for AI context
+  // Get tool system prompt for AI context (includes internal Arbor tools)
   ipcMain.handle('mcp:get-system-prompt', async () => {
     const { generateToolSystemPrompt } = await import('./prompts')
-    const tools = mcpManager.getAvailableTools()
-    return generateToolSystemPrompt(tools)
+    const mcpTools = mcpManager.getAvailableTools()
+    
+    // Add internal Arbor tools
+    const internalTools = getArborInternalTools().map(tool => ({
+      ...tool,
+      server: 'arbor'
+    }))
+    
+    return generateToolSystemPrompt([...internalTools, ...mcpTools])
   })
 
   // =====================

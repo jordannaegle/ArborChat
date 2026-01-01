@@ -27,6 +27,12 @@ import type {
 // Track subscribed webContents per session for real-time updates
 const sessionSubscribers = new Map<string, Set<WebContents>>()
 
+/** Options for on-demand summarization */
+interface SummarizationOptions {
+  targetTokens?: number
+  useAI?: boolean
+}
+
 /**
  * Setup all work journal IPC handlers
  * Call this during app initialization
@@ -171,6 +177,52 @@ export function setupWorkJournalHandlers(): void {
       return workJournalManager.getLatestCheckpoint(sessionId)
     } catch (error) {
       console.error(`[WorkJournal] Get checkpoint failed for ${sessionId}:`, error)
+      throw error
+    }
+  })
+
+  // ===========================================================================
+  // AI Summarization (Phase 6)
+  // ===========================================================================
+
+  /**
+   * Summarize a session on-demand without creating a checkpoint
+   */
+  ipcMain.handle(
+    'work-journal:summarize-session',
+    async (_, { sessionId, options }: { sessionId: string; options?: SummarizationOptions }) => {
+      try {
+        return await workJournalManager.summarizeSession(sessionId, options)
+      } catch (error) {
+        console.error(`[WorkJournal] Summarize session failed for ${sessionId}:`, error)
+        throw error
+      }
+    }
+  )
+
+  /**
+   * Enable/disable AI summarization globally
+   */
+  ipcMain.handle('work-journal:set-ai-summarization', async (_, enabled: boolean) => {
+    try {
+      workJournalManager.setAISummarizationEnabled(enabled)
+      return { success: true, enabled }
+    } catch (error) {
+      console.error('[WorkJournal] Set AI summarization failed:', error)
+      throw error
+    }
+  })
+
+  /**
+   * Get AI summarization status
+   */
+  ipcMain.handle('work-journal:get-ai-summarization-status', async () => {
+    try {
+      return {
+        enabled: workJournalManager.isAISummarizationEnabled()
+      }
+    } catch (error) {
+      console.error('[WorkJournal] Get AI summarization status failed:', error)
       throw error
     }
   })

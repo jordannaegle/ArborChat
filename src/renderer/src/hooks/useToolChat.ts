@@ -1,4 +1,12 @@
 // src/renderer/src/hooks/useToolChat.ts
+/**
+ * useToolChat Hook
+ * 
+ * Integrates MCP tool execution and ArborMemoryService context
+ * into the chat flow with approval workflows and memory injection.
+ * 
+ * @module renderer/hooks/useToolChat
+ */
 
 import { useState, useCallback } from 'react'
 import { useMCP } from '../components/mcp'
@@ -33,7 +41,7 @@ export interface UseToolChatResult {
   memoryItemCount: number
 
   // Actions
-  buildSystemPrompt: (basePrompt: string) => string
+  buildSystemPrompt: (basePrompt: string, memoryContext?: string) => string
   parseToolCall: (content: string) => {
     hasToolCall: boolean
     cleanContent: string
@@ -56,8 +64,8 @@ export interface UseToolChatResult {
   handleToolReject: (id: string) => void
   clearPendingTool: () => void
   getToolResultContext: () => string
-  // Memory pre-fetch for session start
-  fetchMemoryContext: () => Promise<MemoryFetchResult>
+  // Memory pre-fetch for session start (uses ArborMemoryService)
+  fetchMemoryContext: (conversationId?: string, projectPath?: string) => Promise<MemoryFetchResult>
   resetMemoryStatus: () => void
   isMemoryAutoLoadEnabled: () => Promise<boolean>
 }
@@ -72,16 +80,28 @@ export function useToolChat(): UseToolChatResult {
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus>('idle')
   const [memoryItemCount, setMemoryItemCount] = useState(0)
 
-  // Build enhanced system prompt with tool instructions
+  // Build enhanced system prompt with memory context and tool instructions
+  // Memory context is injected BEFORE MCP tool instructions
   const buildSystemPrompt = useCallback(
-    (basePrompt: string): string => {
-      if (!connected || !systemPrompt) {
-        return basePrompt
+    (basePrompt: string, memoryContext?: string): string => {
+      let prompt = basePrompt
+
+      // Inject memory context first (if available)
+      // This ensures user context is present before tool instructions
+      if (memoryContext) {
+        prompt = `${prompt}
+
+${memoryContext}`
       }
 
-      return `${basePrompt}
+      // Then add MCP tool instructions
+      if (connected && systemPrompt) {
+        prompt = `${prompt}
 
 ${systemPrompt}`
+      }
+
+      return prompt
     },
     [connected, systemPrompt]
   )
@@ -207,13 +227,18 @@ ${systemPrompt}`
     setMemoryItemCount(0)
   }, [])
 
-  // Fetch memory context at session start (pre-fetch for injection into context)
-  const fetchMemoryContext = useCallback(async (): Promise<MemoryFetchResult> => {
-    if (!connected) {
-      console.log('[useToolChat] MCP not connected, skipping memory fetch')
-      return { context: null, itemCount: 0, status: 'error' }
-    }
-
+  /**
+   * Fetch memory context at session start using ArborMemoryService.
+   * This is the PRIMARY method for loading user memories into AI context.
+   * 
+   * @param conversationId - Optional conversation ID for conversation-scoped memories
+   * @param projectPath - Optional project path for project-scoped memories
+   * @returns Memory context formatted for system prompt injection
+   */
+  const fetchMemoryContext = useCallback(async (
+    conversationId?: string,
+    projectPath?: string
+  ): Promise<MemoryFetchResult> => {
     // Check if auto-load is enabled
     const autoLoadEnabled = await isMemoryAutoLoadEnabled()
     if (!autoLoadEnabled) {
@@ -224,52 +249,45 @@ ${systemPrompt}`
     setMemoryStatus('loading')
 
     try {
-      console.log('[useToolChat] Fetching memory context...')
-      // Use open_nodes to get all stored memory - pass empty names array to get all nodes
-      const result = await executeTool('open_nodes', { names: [] }, 'Fetching user memory for session context')
+      console.log('[useToolChat] Fetching memory context from ArborMemoryService...')
       
-      if (result.success && result.result) {
-        const memoryContent = typeof result.result === 'string' 
-          ? result.result 
-          : JSON.stringify(result.result, null, 2)
-        
-        // Try to count items (entities/relations) in the result
-        let itemCount = 0
-        try {
-          const parsed = typeof result.result === 'string' 
-            ? JSON.parse(result.result) 
-            : result.result
-          if (parsed.entities) itemCount += parsed.entities.length
-          if (parsed.relations) itemCount += parsed.relations.length
-        } catch {
-          // If we can't parse, estimate based on content
-          itemCount = memoryContent.split('\n').filter(l => l.trim()).length
-        }
-        
-        // Only return if there's actual content
-        if (memoryContent && memoryContent.trim() && memoryContent !== '{}' && memoryContent !== '[]') {
-          console.log('[useToolChat] Memory context fetched successfully')
-          setMemoryStatus('loaded')
-          setMemoryItemCount(itemCount)
-          return {
-            context: `[Memory Context - Information recalled from previous sessions]\n${memoryContent}`,
-            itemCount,
-            status: 'loaded'
-          }
-        }
+      // Use ArborMemoryService instead of MCP Memory Server
+      const memoryContext = await window.api.arborMemory.getContext({
+        conversationId,
+        projectPath,
+        maxTokens: 2000
+      })
+
+      if (memoryContext.status === 'error') {
+        console.warn('[useToolChat] Memory context error:', memoryContext.error)
+        setMemoryStatus('error')
+        setMemoryItemCount(0)
+        return { context: null, itemCount: 0, status: 'error' }
       }
+
+      if (memoryContext.status === 'empty' || !memoryContext.formattedPrompt) {
+        console.log('[useToolChat] No memory content found')
+        setMemoryStatus('empty')
+        setMemoryItemCount(0)
+        return { context: null, itemCount: 0, status: 'empty' }
+      }
+
+      console.log(`[useToolChat] Memory context loaded: ${memoryContext.stats.totalLoaded} items`)
+      setMemoryStatus('loaded')
+      setMemoryItemCount(memoryContext.stats.totalLoaded)
       
-      console.log('[useToolChat] No memory content found')
-      setMemoryStatus('empty')
-      setMemoryItemCount(0)
-      return { context: null, itemCount: 0, status: 'empty' }
+      return {
+        context: memoryContext.formattedPrompt,
+        itemCount: memoryContext.stats.totalLoaded,
+        status: 'loaded'
+      }
     } catch (error) {
       console.warn('[useToolChat] Failed to fetch memory context:', error)
       setMemoryStatus('error')
       setMemoryItemCount(0)
       return { context: null, itemCount: 0, status: 'error' }
     }
-  }, [connected, executeTool, isMemoryAutoLoadEnabled])
+  }, [isMemoryAutoLoadEnabled])
 
   return {
     mcpConnected: connected,

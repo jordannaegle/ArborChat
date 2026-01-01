@@ -19,7 +19,11 @@ import {
   updateEntry,
   deleteEntry,
   searchEntries,
-  exportNotebookAsMarkdown
+  exportNotebookAsMarkdown,
+  exportNotebookAsJSON,
+  exportNotebookAsText,
+  reorderEntries,
+  bulkDeleteEntries
 } from './service'
 import type {
   CreateNotebookInput,
@@ -90,6 +94,27 @@ export function setupNotebookHandlers(): void {
 
   ipcMain.handle('notebooks:export', async (_, id: string) => {
     return exportNotebookAsMarkdown(id)
+  })
+
+  ipcMain.handle('notebooks:export:json', async (_, id: string) => {
+    return exportNotebookAsJSON(id)
+  })
+
+  ipcMain.handle('notebooks:export:text', async (_, id: string) => {
+    return exportNotebookAsText(id)
+  })
+
+  // ===== REORDER & BULK OPERATIONS =====
+
+  ipcMain.handle('notebooks:entries:reorder', async (_, { notebookId, orderedIds }: {
+    notebookId: string
+    orderedIds: string[]
+  }) => {
+    return reorderEntries(notebookId, orderedIds)
+  })
+
+  ipcMain.handle('notebooks:entries:bulk-delete', async (_, ids: string[]) => {
+    return bulkDeleteEntries(ids)
   })
 
   console.log('[Notebooks] IPC handlers ready')

@@ -25,8 +25,10 @@ import { setupPersonaHandlers } from './personas'
 import { setupNotificationHandlers, registerMainWindow } from './notifications'
 import { setupWorkJournalHandlers, cleanupWorkJournalSubscriptions } from './workJournal'
 import { setupNotebookHandlers } from './notebooks'
+import { setupMemoryHandlers, cleanupMemoryService } from './memory'
+import { getMemoryScheduler, tokenizer, countTokens, countTokensSync, truncateToTokens } from './services'
 import { credentialManager, ProviderId } from './credentials'
-import { getGitRepoInfo, getUncommittedFiles, getChangedFilesSinceBranch, getDiffStats } from './services'
+import { getGitRepoInfo, getUncommittedFiles, getChangedFilesSinceBranch, getDiffStats, verifyChanges, getDiffSummary, isGitRepository, getDetailedStatus, commitChanges, getArborChatRoot } from './services'
 
 // Select the appropriate icon based on platform
 function getAppIcon(): string {
@@ -110,6 +112,26 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:get-ollama-url', () => getOllamaServerUrl())
   ipcMain.handle('settings:set-ollama-url', (_, url) => setOllamaServerUrl(url))
 
+  // Tokenizer Handlers - accurate token counting for context management
+  ipcMain.handle('tokenizer:count', async (_event, text: string, modelId?: string): Promise<number> => {
+    return countTokens(text, modelId)
+  })
+
+  ipcMain.handle('tokenizer:countSync', (_event, text: string, modelId?: string): number => {
+    return countTokensSync(text, modelId)
+  })
+
+  ipcMain.handle(
+    'tokenizer:truncate',
+    async (_event, text: string, maxTokens: number, modelId?: string): Promise<string> => {
+      return truncateToTokens(text, maxTokens, modelId)
+    }
+  )
+
+  ipcMain.handle('tokenizer:stats', (): { loadedEncodings: string[]; initialized: boolean } => {
+    return tokenizer.getStats()
+  })
+
   // Dialog Handlers
   ipcMain.handle('dialog:select-directory', async () => {
     const result = await dialog.showOpenDialog({
@@ -134,6 +156,32 @@ app.whenReady().then(() => {
 
   ipcMain.handle('git:get-diff-stats', async (_, { directory, baseBranch }) => {
     return getDiffStats(directory, baseBranch)
+  })
+
+  // Phase 3: Git Verification Handlers
+  ipcMain.handle('git:verify-changes', async (_, { workingDir, expectedFiles }) => {
+    return verifyChanges(workingDir, expectedFiles)
+  })
+
+  ipcMain.handle('git:get-diff-summary', async (_, { workingDir }) => {
+    return getDiffSummary(workingDir)
+  })
+
+  ipcMain.handle('git:is-repository', async (_, { workingDir }) => {
+    return isGitRepository(workingDir)
+  })
+
+  ipcMain.handle('git:get-detailed-status', async (_, { workingDir }) => {
+    return getDetailedStatus(workingDir)
+  })
+
+  // Git Commit Handler - for /commit slash command
+  ipcMain.handle('git:commit', async (_, { workingDir, message }) => {
+    return commitChanges(workingDir, message)
+  })
+
+  ipcMain.handle('git:get-arborchat-root', async () => {
+    return getArborChatRoot()
   })
 
   // Model Discovery Handlers
@@ -326,6 +374,9 @@ app.whenReady().then(() => {
 
   initDB()
 
+  // Initialize tokenizer service for accurate token counting
+  tokenizer.init().catch(err => console.error('[Tokenizer] Init error:', err))
+
   // Setup MCP handlers for tool execution
   setupMCPHandlers()
 
@@ -340,6 +391,13 @@ app.whenReady().then(() => {
 
   // Setup Notebook handlers for saving chat content
   setupNotebookHandlers()
+
+  // Setup Arbor Memory handlers for native memory service
+  setupMemoryHandlers()
+
+  // Start memory decay scheduler (runs daily to maintain memory relevance)
+  const memoryScheduler = getMemoryScheduler()
+  memoryScheduler.start()
 
   const mainWindow = createWindow()
   
@@ -365,7 +423,13 @@ app.on('window-all-closed', () => {
 // Cleanup MCP connections before quitting
 app.on('before-quit', async () => {
   console.log('[App] Cleaning up...')
+  
+  // Stop memory scheduler
+  const memoryScheduler = getMemoryScheduler()
+  memoryScheduler.stop()
+  
   cleanupWorkJournalSubscriptions()
+  cleanupMemoryService()
   await mcpManager.disconnectAll()
 })
 

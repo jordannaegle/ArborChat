@@ -39,10 +39,14 @@ export interface UseNotebooksActions {
   createEntry: (input: CreateEntryInput) => Promise<NotebookEntry>
   updateEntry: (id: string, input: UpdateEntryInput) => Promise<NotebookEntry | null>
   deleteEntry: (id: string) => Promise<boolean>
+  reorderEntries: (notebookId: string, orderedIds: string[]) => Promise<boolean>
+  bulkDeleteEntries: (ids: string[]) => Promise<boolean>
 
   // Search & Export
   search: (query: string) => Promise<NotebookSearchResult[]>
   exportNotebook: (id: string) => Promise<string | null>
+  exportNotebookJSON: (id: string) => Promise<string | null>
+  exportNotebookText: (id: string) => Promise<string | null>
 
   // Utility
   clearError: () => void
@@ -72,7 +76,9 @@ export function useNotebooks(): UseNotebooksReturn {
     setLoading(true)
     setError(null)
     try {
+      console.log('[useNotebooks] Loading notebooks...')
       const list = await window.api.notebooks.list()
+      console.log('[useNotebooks] Loaded notebooks:', list.length, list.map(n => n.name))
       setNotebooks(list)
     } catch (err) {
       console.error('[useNotebooks] Failed to load notebooks:', err)
@@ -133,12 +139,30 @@ export function useNotebooks(): UseNotebooksReturn {
     [selectedNotebookId]
   )
 
-  const selectNotebook = useCallback((id: string | null) => {
+  const selectNotebook = useCallback(async (id: string | null) => {
+    console.log('[useNotebooks] selectNotebook called with id:', id)
     setSelectedNotebookId(id)
     if (!id) {
       setEntries([])
+      return
     }
-  }, [])
+    
+    // Check if notebook exists in local state
+    const existsLocally = notebooks.some(n => n.id === id)
+    console.log('[useNotebooks] Notebook exists locally:', existsLocally, 'notebooks count:', notebooks.length)
+    
+    // If notebook not found locally, refresh the list
+    if (!existsLocally) {
+      console.log('[useNotebooks] Notebook not in local state, refreshing...')
+      try {
+        const list = await window.api.notebooks.list()
+        console.log('[useNotebooks] Refreshed notebooks:', list.length, list.map(n => n.name))
+        setNotebooks(list)
+      } catch (err) {
+        console.error('[useNotebooks] Failed to refresh notebooks:', err)
+      }
+    }
+  }, [notebooks])
 
   // ============ ENTRY OPERATIONS ============
 
@@ -240,6 +264,63 @@ export function useNotebooks(): UseNotebooksReturn {
     [entries]
   )
 
+  // Phase 6: Reorder entries within a notebook
+  const reorderEntries = useCallback(
+    async (notebookId: string, orderedIds: string[]): Promise<boolean> => {
+      try {
+        const success = await window.api.notebooks.entries.reorder(notebookId, orderedIds)
+        if (success && notebookId === selectedNotebookId) {
+          // Reorder local entries to match
+          const reordered = orderedIds
+            .map(id => entries.find(e => e.id === id))
+            .filter((e): e is NotebookEntry => e !== undefined)
+          setEntries(reordered)
+        }
+        return success
+      } catch (err) {
+        console.error('[useNotebooks] Failed to reorder entries:', err)
+        setError('Failed to reorder entries')
+        return false
+      }
+    },
+    [entries, selectedNotebookId]
+  )
+
+  // Phase 6: Bulk delete entries
+  const bulkDeleteEntries = useCallback(
+    async (ids: string[]): Promise<boolean> => {
+      try {
+        const success = await window.api.notebooks.entries.bulkDelete(ids)
+        if (success) {
+          // Remove deleted entries from local state
+          setEntries((prev) => prev.filter((e) => !ids.includes(e.id)))
+
+          // Update notebook entry counts
+          const deletedEntries = entries.filter(e => ids.includes(e.id))
+          const countsByNotebook = new Map<string, number>()
+          deletedEntries.forEach(e => {
+            countsByNotebook.set(e.notebook_id, (countsByNotebook.get(e.notebook_id) || 0) + 1)
+          })
+
+          setNotebooks((prev) =>
+            prev.map((n) => {
+              const deletedCount = countsByNotebook.get(n.id) || 0
+              return deletedCount > 0
+                ? { ...n, entry_count: Math.max(0, n.entry_count - deletedCount) }
+                : n
+            })
+          )
+        }
+        return success
+      } catch (err) {
+        console.error('[useNotebooks] Failed to bulk delete entries:', err)
+        setError('Failed to delete entries')
+        return false
+      }
+    },
+    [entries]
+  )
+
   // ============ SEARCH & EXPORT ============
 
   const search = useCallback(async (query: string): Promise<NotebookSearchResult[]> => {
@@ -254,9 +335,31 @@ export function useNotebooks(): UseNotebooksReturn {
 
   const exportNotebook = useCallback(async (id: string): Promise<string | null> => {
     try {
-      return await window.api.notebooks.export(id)
+      return await window.api.notebooks.export.markdown(id)
     } catch (err) {
       console.error('[useNotebooks] Export failed:', err)
+      setError('Export failed')
+      throw err
+    }
+  }, [])
+
+  // Phase 6: Export as JSON
+  const exportNotebookJSON = useCallback(async (id: string): Promise<string | null> => {
+    try {
+      return await window.api.notebooks.export.json(id)
+    } catch (err) {
+      console.error('[useNotebooks] JSON export failed:', err)
+      setError('Export failed')
+      throw err
+    }
+  }, [])
+
+  // Phase 6: Export as plain text
+  const exportNotebookText = useCallback(async (id: string): Promise<string | null> => {
+    try {
+      return await window.api.notebooks.export.text(id)
+    } catch (err) {
+      console.error('[useNotebooks] Text export failed:', err)
       setError('Export failed')
       throw err
     }
@@ -313,10 +416,14 @@ export function useNotebooks(): UseNotebooksReturn {
     createEntry,
     updateEntry,
     deleteEntry,
+    reorderEntries,
+    bulkDeleteEntries,
 
     // Search & Export
     search,
     exportNotebook,
+    exportNotebookJSON,
+    exportNotebookText,
 
     // Utility
     clearError,

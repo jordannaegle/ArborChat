@@ -241,6 +241,18 @@ export interface GetEntriesOptions {
 
 export interface CreateCheckpointOptions {
   manual?: boolean;       // Was this manually triggered by user
+  /** Use AI for summarization (default: true if enabled in settings) */
+  useAISummarization?: boolean;
+  /** Target token count for AI summary */
+  targetTokens?: number;
+}
+
+/** Configuration for AI-powered summarization */
+export interface SummarizationConfig {
+  enabled: boolean;
+  preferredModel?: string;
+  targetTokens: number;
+  includeErrorAnalysis: boolean;
 }
 
 // ============================================================================

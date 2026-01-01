@@ -1,7 +1,7 @@
 // src/renderer/src/components/agent/AgentLaunchModal.tsx
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Bot, Rocket, Sparkles, FolderOpen, Shield, ShieldAlert, ShieldCheck, GitBranch, GitCommit, Files, Loader2 } from 'lucide-react'
+import { X, Bot, Rocket, Sparkles, FolderOpen, Shield, ShieldAlert, ShieldCheck, GitBranch, GitCommit, Files, Loader2, Settings2, History, Layers } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { AgentToolPermission, AgentTemplate, GitScope, GitContext } from '../../types/agent'
 import { AgentTemplateSelector } from './AgentTemplateSelector'
@@ -12,6 +12,15 @@ interface ContextSeedingOptions {
   parentContextDepth: number
   includeFullConversation: boolean
   includePersona: boolean
+}
+
+// Phase 4: Checkpoint summary for resumption
+interface CheckpointSummary {
+  sessionId: string
+  checkpointId: string
+  timestamp: number
+  summary: string
+  originalPrompt?: string
 }
 
 interface GitRepoInfo {
@@ -36,6 +45,11 @@ interface AgentLaunchModalProps {
     contextOptions: ContextSeedingOptions
     workingDirectory: string
     gitContext?: GitContext
+    // Phase 4: Advanced capabilities
+    autoAnalyzeProject?: boolean
+    enableMultiFileOrchestration?: boolean
+    checkpointToRestore?: string
+    contextTokenBudget?: number
   }) => void
   onClose: () => void
 }
@@ -53,6 +67,13 @@ export function AgentLaunchModal({
   const [toolPermission, setToolPermission] = useState<AgentToolPermission>('standard')
   const [workingDirectory, setWorkingDirectory] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplate | null>(null)
+  
+  // Phase 4: Advanced capabilities state
+  const [autoAnalyzeProject, setAutoAnalyzeProject] = useState(true)
+  const [enableOrchestration, setEnableOrchestration] = useState(false)
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<string | null>(null)
+  const [availableCheckpoints, setAvailableCheckpoints] = useState<CheckpointSummary[]>([])
+  const [isLoadingCheckpoints, setIsLoadingCheckpoints] = useState(false)
   
   // Git detection state
   const [gitRepoInfo, setGitRepoInfo] = useState<GitRepoInfo | null>(null)
@@ -89,6 +110,11 @@ export function AgentLaunchModal({
       setGitRepoInfo(null)
       setGitScope('all')
       setGitBaseBranch('main')
+      // Phase 4: Reset advanced options
+      setAutoAnalyzeProject(true)
+      setEnableOrchestration(false)
+      setSelectedCheckpoint(null)
+      setAvailableCheckpoints([])
       setContextOptions({
         includeCurrentMessage: true,
         includeParentContext: true,
@@ -98,6 +124,39 @@ export function AgentLaunchModal({
       })
     }
   }, [isOpen, hasActivePersona])
+
+  // Phase 4: Load available checkpoints when modal opens
+  useEffect(() => {
+    const loadCheckpoints = async () => {
+      if (!isOpen) return
+      
+      setIsLoadingCheckpoints(true)
+      try {
+        const sessions = await window.api.workJournal.getResumableSessions(10)
+        const summaries: CheckpointSummary[] = []
+        
+        for (const session of sessions) {
+          const checkpoint = await window.api.workJournal.getLatestCheckpoint(session.id)
+          summaries.push({
+            sessionId: session.id,
+            checkpointId: checkpoint?.id || `session-${session.id}`,
+            timestamp: checkpoint?.createdAt || session.updatedAt,
+            summary: checkpoint?.summary || session.originalPrompt.slice(0, 80) + '...',
+            originalPrompt: session.originalPrompt
+          })
+        }
+        
+        setAvailableCheckpoints(summaries.sort((a, b) => b.timestamp - a.timestamp))
+      } catch (error) {
+        console.error('Failed to load checkpoints:', error)
+        setAvailableCheckpoints([])
+      } finally {
+        setIsLoadingCheckpoints(false)
+      }
+    }
+    
+    loadCheckpoints()
+  }, [isOpen])
 
   // Detect git repo when working directory changes
   useEffect(() => {
@@ -164,7 +223,12 @@ export function AgentLaunchModal({
       toolPermission,
       contextOptions,
       workingDirectory,
-      gitContext
+      gitContext,
+      // Phase 4: Advanced capabilities
+      autoAnalyzeProject: workingDirectory ? autoAnalyzeProject : false,
+      enableMultiFileOrchestration: enableOrchestration,
+      checkpointToRestore: selectedCheckpoint || undefined,
+      contextTokenBudget: selectedTemplate?.contextTokenBudget
     })
   }
 
@@ -611,6 +675,86 @@ export function AgentLaunchModal({
                   </p>
                 </div>
               ) : null}
+            </div>
+          )}
+
+          {/* Phase 4: Advanced Capabilities */}
+          {workingDirectory && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Settings2 size={14} className="text-violet-400" />
+                <label className="text-xs font-medium text-text-muted">
+                  Advanced Capabilities
+                </label>
+              </div>
+              
+              <div className="space-y-2 p-3 bg-violet-500/5 rounded-lg border border-violet-500/20">
+                {/* Auto-Analyze Project */}
+                <label className="flex items-center justify-between cursor-pointer group">
+                  <div className="flex items-center gap-2">
+                    <Layers size={14} className="text-text-muted" />
+                    <span className="text-sm text-text-muted group-hover:text-text-normal transition-colors">
+                      Auto-analyze project structure
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={autoAnalyzeProject}
+                    onChange={(e) => setAutoAnalyzeProject(e.target.checked)}
+                    className="w-4 h-4 rounded border-secondary bg-secondary/50 text-violet-500 focus:ring-violet-500/30"
+                  />
+                </label>
+                <p className="text-xs text-text-muted/70 ml-6">
+                  Detect project type, framework, and inject config context
+                </p>
+                
+                {/* Multi-File Orchestration */}
+                <label className="flex items-center justify-between cursor-pointer group mt-2">
+                  <div className="flex items-center gap-2">
+                    <Files size={14} className="text-text-muted" />
+                    <span className="text-sm text-text-muted group-hover:text-text-normal transition-colors">
+                      Enable multi-file orchestration
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={enableOrchestration}
+                    onChange={(e) => setEnableOrchestration(e.target.checked)}
+                    className="w-4 h-4 rounded border-secondary bg-secondary/50 text-violet-500 focus:ring-violet-500/30"
+                  />
+                </label>
+                <p className="text-xs text-text-muted/70 ml-6">
+                  Plan complex multi-file changes with dependency awareness
+                </p>
+                
+                {/* Resume Previous Session */}
+                {availableCheckpoints.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-violet-500/10">
+                    <label className="flex items-center gap-2 text-sm text-text-muted mb-2">
+                      <History size={14} />
+                      Resume previous session
+                    </label>
+                    <select
+                      value={selectedCheckpoint || ''}
+                      onChange={(e) => setSelectedCheckpoint(e.target.value || null)}
+                      className="w-full bg-secondary/50 text-text-normal text-sm px-3 py-2 rounded-lg border border-secondary/50 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                    >
+                      <option value="">Start fresh</option>
+                      {availableCheckpoints.map(cp => (
+                        <option key={cp.sessionId} value={cp.sessionId}>
+                          {new Date(cp.timestamp).toLocaleDateString()} - {cp.summary.slice(0, 40)}...
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {isLoadingCheckpoints && (
+                  <div className="flex items-center gap-2 text-xs text-text-muted mt-2">
+                    <Loader2 size={12} className="animate-spin" />
+                    Loading previous sessions...
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

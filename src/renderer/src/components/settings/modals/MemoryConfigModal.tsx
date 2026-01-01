@@ -10,6 +10,13 @@ interface MemoryConfigModalProps {
 
 export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
   const [stats, setStats] = useState<{ count: number; size: number } | null>(null)
+  const [_detailedStats, setDetailedStats] = useState<{
+    totalMemories: number
+    byScope: Record<string, number>
+    byType: Record<string, number>
+    avgConfidence: number
+  } | null>(null)
+  void _detailedStats // Suppress unused variable warning - planned for future use
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -32,8 +39,15 @@ export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
 
   const loadMemoryStats = async () => {
     try {
-      const memoryStats = await window.api.mcp.memory.getStats()
-      setStats(memoryStats)
+      // Use ArborMemory API which queries the actual SQLite database
+      const arborStats = await window.api.arborMemory.getStats()
+      setDetailedStats(arborStats)
+      // Map to legacy format for UI compatibility
+      setStats({
+        count: arborStats.totalMemories,
+        // Estimate size: ~100 bytes per memory on average
+        size: arborStats.totalMemories * 100
+      })
     } catch (error) {
       console.error('Failed to load memory stats:', error)
       setError('Failed to load memory statistics')
@@ -58,14 +72,15 @@ export function MemoryConfigModal({ onClose, onSave }: MemoryConfigModalProps) {
     setError(null)
 
     try {
-      const result = await window.api.mcp.memory.clearAll()
+      // Use ArborMemory API to clear all memories
+      const result = await window.api.arborMemory.clearAll()
       if (result.success) {
         setSuccess(true)
         setShowClearConfirm(false)
         await loadMemoryStats()
         setTimeout(() => setSuccess(false), 3000)
       } else {
-        setError('Failed to clear memory')
+        setError(result.error || 'Failed to clear memory')
       }
     } catch (err) {
       setError('Failed to clear memory')

@@ -10,7 +10,10 @@ export function generateToolSystemPrompt(tools: ToolDefinition[]): string {
     return ''
   }
 
-  const toolDescriptions = tools
+  // Filter to MCP server tools only (excluding internal Arbor tools)
+  const mcpTools = tools.filter(t => (t as ToolDefinition & { server?: string }).server !== 'arbor')
+
+  const mcpToolDescriptions = mcpTools
     .map(
       (tool) => `### ${tool.name}
 ${tool.description || 'No description available'}
@@ -36,7 +39,7 @@ You are running inside ArborChat, a desktop application that provides you with t
 
 ### Available Tools
 
-${toolDescriptions}
+${mcpToolDescriptions}
 
 ## How to Use Tools
 
@@ -73,29 +76,57 @@ When you need to use a tool, include a JSON block in this EXACT format in your r
 5. **One tool at a time** - Request only one tool per response, wait for results
 6. **Handle errors gracefully** - If a tool fails, explain what happened and suggest alternatives
 
-## Memory System
+## Memory System (arbor_store_memory)
 
-You have access to a persistent memory system that stores information across conversations. **At the start of each new conversation**, you should check your memory for relevant context about the user.
+You have access to ArborChat's persistent memory system that stores information across conversations. **Memory is automatically loaded at the start of each conversation** from the ArborMemoryService database.
 
 ### Memory Behavior
-1. **On first message of a conversation** - Use \`open_nodes\` or \`search_memories\` to recall relevant user preferences, past context, or important facts
-2. **When the user shares preferences or important info** - Use \`create_entities\` or \`create_relations\` to store it for future sessions
-3. **When the user asks you to remember something** - Always store it in memory using the appropriate tool
-4. **When context would help** - Proactively search memory for relevant information
+1. **Automatic Context Loading** - At conversation start, relevant memories about the user are automatically injected into your context
+2. **When the user shares preferences or important info** - Use \`arbor_store_memory\` to persist it for future sessions
+3. **When the user asks you to remember something** - Always store it using \`arbor_store_memory\`
+4. **Be specific and concise** - Store actionable, specific information (not session-specific details)
 
-### Memory Tools
-- **open_nodes** - Retrieve all stored entities and relations (good for session start)
-- **search_memories** - Search for specific topics or keywords
-- **create_entities** - Store new facts, preferences, or information about the user
-- **create_relations** - Create connections between entities
-- **delete_entities/delete_relations** - Remove outdated or incorrect information
+### Memory Tool: arbor_store_memory
 
-**Example** - Checking memory at session start:
+Store information about the user for future conversations. This memory persists across all conversations and is automatically included in future context.
+
+**Use this to remember:**
+- User preferences (coding style, communication preferences, favorite tools)
+- Facts about the user (name, role, company, projects they work on)
+- Standing instructions (how they want things done, formatting preferences)
+- Skills and expertise they've mentioned
+- Important context for ongoing work
+
+**Input Parameters:**
+- \`content\` (required): The information to remember (be specific and concise)
+- \`type\` (required): Category - "preference", "fact", "instruction", "skill", "context", or "relationship"
+- \`importance\` (optional): "low", "medium" (default), or "high" - High importance memories are always included
+- \`tags\` (optional): Array of tags for categorization (e.g., ["coding", "preferences"])
+
+**Example** - Storing a user preference:
 \`\`\`tool_use
 {
-  "tool": "open_nodes",
-  "args": {},
-  "explanation": "Checking memory for user context and preferences"
+  "tool": "arbor_store_memory",
+  "args": {
+    "content": "User prefers TypeScript over JavaScript for all new projects",
+    "type": "preference",
+    "importance": "high",
+    "tags": ["coding", "typescript"]
+  },
+  "explanation": "Storing user's language preference for future code suggestions"
+}
+\`\`\`
+
+**Example** - Storing a fact about the user:
+\`\`\`tool_use
+{
+  "tool": "arbor_store_memory",
+  "args": {
+    "content": "User's name is Alex and they work at TechCorp as a Senior Engineer",
+    "type": "fact",
+    "importance": "high"
+  },
+  "explanation": "Recording user's name and role for personalized interactions"
 }
 \`\`\`
 
@@ -105,6 +136,7 @@ You have access to a persistent memory system that stores information across con
 **File System (write):** write_file, create_directory, move_file, edit_block
 **Search:** start_search, get_more_search_results, stop_search
 **Processes:** start_process, read_process_output, interact_with_process, list_sessions
+**Memory:** arbor_store_memory (stores information for future conversations)
 
 After outputting a tool_use block, ArborChat will execute it and provide you with the results. Continue your response based on those results.`
 }

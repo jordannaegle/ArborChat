@@ -136,6 +136,30 @@ interface GitDiffInfo {
   totalDeletions: number
 }
 
+// Phase 3: Git verification types
+interface GitVerifyResult {
+  verified: boolean
+  changedFiles: string[]
+  missingChanges: string[]
+  unexpectedChanges: string[]
+  details: Record<string, { status: string; lines?: number }>
+}
+
+interface GitDetailedStatus {
+  staged: Array<{ path: string; additions: number; deletions: number }>
+  modified: Array<{ path: string; additions: number; deletions: number }>
+  untracked: Array<{ path: string }>
+}
+
+// Git commit result type
+interface GitCommitResult {
+  success: boolean
+  commitHash?: string
+  message?: string
+  filesCommitted?: number
+  error?: string
+}
+
 // Notebook API types for saved chat content
 interface Notebook {
   id: string
@@ -198,6 +222,153 @@ interface NotebookSearchResult {
   rank: number
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Arbor Memory API Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Memory type classification determines how the memory is categorized. */
+type ArborMemoryType = 
+  | 'preference'    // User preferences (dark mode, coding style)
+  | 'fact'          // Facts about user (name, role, projects)
+  | 'context'       // Contextual info (current goals, recent work)
+  | 'skill'         // User skills/expertise
+  | 'instruction'   // Standing instructions ("always use TypeScript")
+  | 'relationship'  // Relations to other entities
+
+/** Memory scope determines visibility and retrieval behavior. */
+type ArborMemoryScope = 
+  | 'global'        // Available everywhere
+  | 'project'       // Specific to a project path
+  | 'conversation'  // Specific to a conversation
+
+/** How the memory was created - affects confidence weighting. */
+type ArborMemorySource = 
+  | 'user_stated'   // User explicitly said this
+  | 'ai_inferred'   // AI inferred from conversation
+  | 'agent_stored'  // Agent explicitly stored via tool
+  | 'system'        // System-generated
+
+/** Privacy level controls injection behavior into AI context. */
+type ArborMemoryPrivacyLevel = 
+  | 'always_include' // Always inject into context
+  | 'normal'         // Include when relevant
+  | 'sensitive'      // Only include when directly relevant
+  | 'never_share'    // Never include in AI context
+
+/** Core memory entity. */
+interface ArborMemoryRecord {
+  id: string
+  content: string
+  summary?: string
+  type: ArborMemoryType
+  scope: ArborMemoryScope
+  scopeId?: string
+  source: ArborMemorySource
+  confidence: number
+  tags?: string[]
+  relatedMemories?: string[]
+  createdAt: number
+  updatedAt: number
+  accessedAt: number
+  accessCount: number
+  decayRate: number
+  compactedAt?: number
+  expiresAt?: number
+  privacyLevel: ArborMemoryPrivacyLevel
+}
+
+/** Query parameters for memory retrieval. */
+interface ArborMemoryQuery {
+  scope?: ArborMemoryScope
+  scopeId?: string
+  includeGlobal?: boolean
+  types?: ArborMemoryType[]
+  minConfidence?: number
+  privacyLevels?: ArborMemoryPrivacyLevel[]
+  searchText?: string
+  tags?: string[]
+  limit?: number
+  offset?: number
+  sortBy?: 'confidence' | 'accessedAt' | 'createdAt' | 'accessCount'
+  sortOrder?: 'asc' | 'desc'
+}
+
+/** Context returned for conversation injection. */
+interface ArborMemoryContext {
+  formattedPrompt: string
+  memories: ArborMemoryRecord[]
+  stats: {
+    totalLoaded: number
+    byScope: Record<ArborMemoryScope, number>
+    byType: Record<ArborMemoryType, number>
+    avgConfidence: number
+  }
+  status: 'loaded' | 'empty' | 'error'
+  error?: string
+}
+
+/** Request to store a new memory. */
+interface StoreArborMemoryRequest {
+  content: string
+  type: ArborMemoryType
+  scope?: ArborMemoryScope
+  scopeId?: string
+  source?: ArborMemorySource
+  confidence?: number
+  tags?: string[]
+  privacyLevel?: ArborMemoryPrivacyLevel
+  decayRate?: number
+  expiresAt?: number
+}
+
+/** Result of storing a memory. */
+interface StoreArborMemoryResult {
+  success: boolean
+  memoryId?: string
+  error?: string
+  duplicate?: boolean
+  existingMemoryId?: string
+}
+
+/** Request to update an existing memory. */
+interface UpdateArborMemoryRequest {
+  id: string
+  content?: string
+  type?: ArborMemoryType
+  scope?: ArborMemoryScope
+  scopeId?: string
+  confidence?: number
+  tags?: string[]
+  privacyLevel?: ArborMemoryPrivacyLevel
+  summary?: string
+}
+
+/** Memory candidate for AI-driven compaction. */
+interface ArborCompactionCandidate {
+  memory: ArborMemoryRecord
+  reason: 'age' | 'low_confidence' | 'low_access' | 'size'
+  suggestedAction: 'summarize' | 'delete' | 'archive'
+}
+
+/** Result of running the decay process. */
+interface ArborDecayResult {
+  updated: number
+  deleted: number
+}
+
+/** Comprehensive memory statistics. */
+interface ArborMemoryStats {
+  totalMemories: number
+  byScope: Record<ArborMemoryScope, number>
+  byType: Record<ArborMemoryType, number>
+  bySource: Record<ArborMemorySource, number>
+  avgConfidence: number
+  oldestMemory: number
+  newestMemory: number
+  totalAccessCount: number
+  compactedCount: number
+}
+
 // Git API for repository detection and information
 const gitApi = {
   // Get comprehensive git repo info for a directory
@@ -214,7 +385,27 @@ const gitApi = {
 
   // Get diff statistics
   getDiffStats: (directory: string, baseBranch?: string) =>
-    ipcRenderer.invoke('git:get-diff-stats', { directory, baseBranch }) as Promise<GitDiffInfo>
+    ipcRenderer.invoke('git:get-diff-stats', { directory, baseBranch }) as Promise<GitDiffInfo>,
+
+  // Phase 3: Verification methods
+  verifyChanges: (workingDir: string, expectedFiles: string[]) =>
+    ipcRenderer.invoke('git:verify-changes', { workingDir, expectedFiles }) as Promise<GitVerifyResult>,
+
+  getDiffSummary: (workingDir: string) =>
+    ipcRenderer.invoke('git:get-diff-summary', { workingDir }) as Promise<string>,
+
+  isRepository: (workingDir: string) =>
+    ipcRenderer.invoke('git:is-repository', { workingDir }) as Promise<boolean>,
+
+  getDetailedStatus: (workingDir: string) =>
+    ipcRenderer.invoke('git:get-detailed-status', { workingDir }) as Promise<GitDetailedStatus>,
+
+  // Commit operations - for /commit slash command
+  commit: (workingDir: string, message?: string) =>
+    ipcRenderer.invoke('git:commit', { workingDir, message }) as Promise<GitCommitResult>,
+
+  getArborChatRoot: () =>
+    ipcRenderer.invoke('git:get-arborchat-root') as Promise<string>
 }
 
 // Persona API for managing AI personalities
@@ -647,7 +838,7 @@ const workJournalApi = {
     }) as Promise<WorkEntry[]>,
 
   // Checkpointing
-  createCheckpoint: (sessionId: string, options?: { manual?: boolean }) =>
+  createCheckpoint: (sessionId: string, options?: { manual?: boolean; useAISummarization?: boolean; targetTokens?: number }) =>
     ipcRenderer.invoke('work-journal:create-checkpoint', {
       sessionId,
       options
@@ -655,6 +846,25 @@ const workJournalApi = {
 
   getLatestCheckpoint: (sessionId: string) =>
     ipcRenderer.invoke('work-journal:get-latest-checkpoint', sessionId) as Promise<WorkCheckpoint | null>,
+
+  // AI Summarization (Phase 6)
+  /** Trigger AI summarization for a session (without creating checkpoint) */
+  summarizeSession: (sessionId: string, options?: { targetTokens?: number; useAI?: boolean }) =>
+    ipcRenderer.invoke('work-journal:summarize-session', { sessionId, options }) as Promise<{
+      summary: string
+      keyDecisions: string[]
+      currentState: string
+      suggestedNextSteps: string[]
+      usedAI: boolean
+    }>,
+
+  /** Enable/disable AI summarization */
+  setAISummarizationEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('work-journal:set-ai-summarization', enabled) as Promise<{ success: boolean; enabled: boolean }>,
+
+  /** Get AI summarization status */
+  getAISummarizationStatus: () =>
+    ipcRenderer.invoke('work-journal:get-ai-summarization-status') as Promise<{ enabled: boolean }>,
 
   // Resumption
   generateResumptionContext: (sessionId: string, targetTokens?: number) =>
@@ -732,14 +942,136 @@ const notebooksApi = {
     update: (id: string, input: UpdateEntryInput) =>
       ipcRenderer.invoke('notebooks:entries:update', { id, input }) as Promise<NotebookEntry | null>,
 
-    delete: (id: string) => ipcRenderer.invoke('notebooks:entries:delete', id) as Promise<boolean>
+    delete: (id: string) => ipcRenderer.invoke('notebooks:entries:delete', id) as Promise<boolean>,
+
+    // Phase 6: Reorder and bulk operations
+    reorder: (notebookId: string, orderedIds: string[]) =>
+      ipcRenderer.invoke('notebooks:entries:reorder', { notebookId, orderedIds }) as Promise<boolean>,
+
+    bulkDelete: (ids: string[]) =>
+      ipcRenderer.invoke('notebooks:entries:bulk-delete', ids) as Promise<boolean>
   },
 
   // Search & Export
   search: (query: string) =>
     ipcRenderer.invoke('notebooks:search', query) as Promise<NotebookSearchResult[]>,
 
-  export: (id: string) => ipcRenderer.invoke('notebooks:export', id) as Promise<string | null>
+  // Phase 6: Enhanced export options
+  export: {
+    markdown: (id: string) =>
+      ipcRenderer.invoke('notebooks:export', id) as Promise<string | null>,
+    json: (id: string) =>
+      ipcRenderer.invoke('notebooks:export:json', id) as Promise<string | null>,
+    text: (id: string) =>
+      ipcRenderer.invoke('notebooks:export:text', id) as Promise<string | null>
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Arbor Memory API - Native persistent memory for AI conversations
+// ═══════════════════════════════════════════════════════════════════════════
+
+const arborMemoryApi = {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Context Retrieval (Primary method for conversation start)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get context memories for conversation injection.
+   * Called at conversation start for automatic memory loading.
+   */
+  getContext: (options?: {
+    conversationId?: string
+    projectPath?: string
+    searchText?: string
+    maxTokens?: number
+  }) => ipcRenderer.invoke('memory:getContext', options ?? {}) as Promise<ArborMemoryContext>,
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Storage
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Store a new memory with duplicate detection. */
+  store: (request: StoreArborMemoryRequest) =>
+    ipcRenderer.invoke('memory:store', request) as Promise<StoreArborMemoryResult>,
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Querying
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Query memories with flexible filters. */
+  query: (query: ArborMemoryQuery) =>
+    ipcRenderer.invoke('memory:query', query) as Promise<ArborMemoryRecord[]>,
+
+  /** Full-text search across memory content. */
+  search: (searchText: string, limit?: number) =>
+    ipcRenderer.invoke('memory:search', searchText, limit) as Promise<ArborMemoryRecord[]>,
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CRUD Operations
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Get a single memory by ID. */
+  get: (id: string) =>
+    ipcRenderer.invoke('memory:get', id) as Promise<ArborMemoryRecord | null>,
+
+  /** Update an existing memory. */
+  update: (request: UpdateArborMemoryRequest) =>
+    ipcRenderer.invoke('memory:update', request) as Promise<boolean>,
+
+  /** Delete a memory by ID. */
+  delete: (id: string) =>
+    ipcRenderer.invoke('memory:delete', id) as Promise<boolean>,
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Statistics
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Get comprehensive memory statistics. */
+  getStats: () =>
+    ipcRenderer.invoke('memory:getStats') as Promise<ArborMemoryStats>,
+
+  /** Clear all memories from the database. */
+  clearAll: () =>
+    ipcRenderer.invoke('memory:clearAll') as Promise<{ success: boolean; deleted: number; error?: string }>,
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Decay & Compaction
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Get memories that are candidates for AI-driven compaction/summarization. */
+  getCompactionCandidates: (limit?: number) =>
+    ipcRenderer.invoke('memory:getCompactionCandidates', limit) as Promise<ArborCompactionCandidate[]>,
+
+  /** Apply compaction (AI-generated summary) to a memory. */
+  applyCompaction: (memoryId: string, summary: string) =>
+    ipcRenderer.invoke('memory:applyCompaction', memoryId, summary) as Promise<boolean>,
+
+  /** Run decay on memories not accessed recently. */
+  runDecay: () =>
+    ipcRenderer.invoke('memory:runDecay') as Promise<ArborDecayResult>
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tokenizer API - Accurate token counting for context management
+// ═══════════════════════════════════════════════════════════════════════════
+
+const tokenizerApi = {
+  /** Count tokens in text (async, accurate) */
+  count: (text: string, modelId?: string): Promise<number> =>
+    ipcRenderer.invoke('tokenizer:count', text, modelId),
+
+  /** Count tokens synchronously (uses cache, faster for hot paths) */
+  countSync: (text: string, modelId?: string): Promise<number> =>
+    ipcRenderer.invoke('tokenizer:countSync', text, modelId),
+
+  /** Truncate text to fit within token limit */
+  truncate: (text: string, maxTokens: number, modelId?: string): Promise<string> =>
+    ipcRenderer.invoke('tokenizer:truncate', text, maxTokens, modelId),
+
+  /** Get tokenizer service statistics */
+  getStats: (): Promise<{ loadedEncodings: string[]; initialized: boolean }> =>
+    ipcRenderer.invoke('tokenizer:stats')
 }
 
 // Custom APIs for renderer
@@ -772,10 +1104,19 @@ const api = {
   onDone: (callback: () => void) => ipcRenderer.on('ai:done', () => callback()),
   onError: (callback: (err: string) => void) =>
     ipcRenderer.on('ai:error', (_, err) => callback(err)),
+  // Native function call handler (for providers with native tool calling)
+  onFunctionCall: (callback: (data: { name: string; args: Record<string, unknown> }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { name: string; args: Record<string, unknown> }) => {
+      callback(data)
+    }
+    ipcRenderer.on('ai:function_call', listener)
+    return () => ipcRenderer.removeListener('ai:function_call', listener)
+  },
   offAI: () => {
     ipcRenderer.removeAllListeners('ai:token')
     ipcRenderer.removeAllListeners('ai:done')
     ipcRenderer.removeAllListeners('ai:error')
+    ipcRenderer.removeAllListeners('ai:function_call')
   },
   // MCP API
   mcp: mcpApi,
@@ -790,7 +1131,11 @@ const api = {
   // Git API
   git: gitApi,
   // Notebooks API
-  notebooks: notebooksApi
+  notebooks: notebooksApi,
+  // Arbor Memory API
+  arborMemory: arborMemoryApi,
+  // Tokenizer API
+  tokenizer: tokenizerApi
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

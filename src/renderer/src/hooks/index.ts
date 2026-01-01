@@ -19,6 +19,15 @@ export type { UseAgentResult } from './useAgent'
 export { useAgentRunner } from './useAgentRunner'
 export type { UseAgentRunnerResult, AgentRunnerState } from './useAgentRunner'
 
+// Phase 2: Agent Watchdog System
+export { useAgentWatchdog, formatWatchdogDuration } from './useAgentWatchdog'
+export type {
+  WatchdogStatus,
+  WatchdogActivityState,
+  WatchdogState,
+  WatchdogCallbacks
+} from './useAgentWatchdog'
+
 // Agent Notifications (Phase 5)
 export { useAgentNotifications } from './useAgentNotifications'
 
@@ -52,3 +61,27 @@ export { useNotebookShortcuts } from './useNotebookShortcuts'
 // Phase 7: Accessibility and Polish Utilities
 export { useFocusTrap } from './useFocusTrap'
 export { useDebounce } from './useDebounce'
+
+// Tool Window Phase 6: Keyboard Navigation & Accessibility
+export { useStepKeyboardNav } from './useStepKeyboardNav'
+export type {
+  UseStepKeyboardNavOptions,
+  UseStepKeyboardNavReturn
+} from './useStepKeyboardNav'
+
+export { useReducedMotion } from './useReducedMotion'
+
+// Tool Window Phase 6.4: Real-time Streaming Extraction
+export { useStreamingStepExtractor } from './useStreamingStepExtractor'
+export type {
+  ExtractedThought,
+  UseStreamingStepExtractorOptions,
+  UseStreamingStepExtractorReturn
+} from './useStreamingStepExtractor'
+
+// Phase 7: Tool Call State Management (Shared Hook)
+export { useToolCallState } from './useToolCallState'
+export type {
+  UseToolCallStateOptions,
+  UseToolCallStateReturn
+} from './useToolCallState'

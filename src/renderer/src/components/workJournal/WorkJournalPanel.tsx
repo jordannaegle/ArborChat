@@ -25,6 +25,7 @@ import {
 import { useWorkSession } from '../../hooks/useWorkSession'
 import { EntryCard } from './EntryCard'
 import { SessionHeader } from './SessionHeader'
+import { ResizablePanel } from '../shared'
 
 interface WorkJournalPanelProps {
   sessionId: string | null
@@ -113,13 +114,21 @@ export function WorkJournalPanel({
   }
 
   return (
-    <div
-      className="
-        fixed right-0 top-0 h-full w-80 z-40
-        bg-zinc-900 border-l border-zinc-700
-        flex flex-col shadow-2xl
-      "
+    <ResizablePanel
+      storageKey="work-journal"
+      defaultWidth={320}
+      minWidth={280}
+      maxWidth={600}
+      isOpen={isOpen}
+      className="fixed right-0 top-0 h-full z-40"
     >
+      <div
+        className="
+          h-full w-full
+          bg-zinc-900 border-l border-zinc-700
+          flex flex-col shadow-2xl
+        "
+      >
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-zinc-700 bg-zinc-800/50">
         <div className="flex items-center gap-2">
@@ -266,6 +275,7 @@ export function WorkJournalPanel({
         </div>
       )}
     </div>
+    </ResizablePanel>
   )
 }
 

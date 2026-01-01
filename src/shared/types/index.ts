@@ -5,3 +5,4 @@
  */
 
 export * from './workJournal';
+export * from './memory';

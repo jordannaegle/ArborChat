@@ -3,6 +3,8 @@
  *
  * Displays a list of all notebooks with selection support.
  *
+ * Phase 7: Added ARIA accessibility attributes.
+ *
  * @module components/notebook/NotebookList
  */
 
@@ -25,7 +27,10 @@ export function NotebookList({
   if (notebooks.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4">
+        <div 
+          className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4"
+          aria-hidden="true"
+        >
           <BookOpen size={28} className="text-amber-400" />
         </div>
         <h3 className="text-lg font-semibold text-text-normal mb-2">
@@ -42,7 +47,7 @@ export function NotebookList({
             'transition-colors'
           )}
         >
-          <Plus size={16} />
+          <Plus size={16} aria-hidden="true" />
           Create Notebook
         </button>
       </div>
@@ -50,13 +55,18 @@ export function NotebookList({
   }
 
   return (
-    <div className="p-3 space-y-2">
+    <div 
+      className="p-3 space-y-2"
+      role="list"
+      aria-label="Notebooks"
+    >
       {notebooks.map((notebook) => (
-        <NotebookCard
-          key={notebook.id}
-          notebook={notebook}
-          onClick={() => onSelectNotebook(notebook.id)}
-        />
+        <div role="listitem" key={notebook.id}>
+          <NotebookCard
+            notebook={notebook}
+            onClick={() => onSelectNotebook(notebook.id)}
+          />
+        </div>
       ))}
     </div>
   )

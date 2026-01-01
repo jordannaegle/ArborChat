@@ -1,5 +1,16 @@
 // src/renderer/src/components/mcp/InlineToolCall.tsx
 // Collapsible inline tool call display similar to Claude Desktop
+/**
+ * @deprecated Use InlineToolCallV2 instead. This component is maintained
+ * for backward compatibility only and will be removed in a future version.
+ * 
+ * Migration guide:
+ * 1. Replace `<InlineToolCall />` with `<InlineToolCallV2 />`
+ * 2. Add required props: `isExpanded`, `onToggleExpand`
+ * 3. Optionally add a11y props: `isFocused`, `tabIndex`
+ * 
+ * @see InlineToolCallV2
+ */
 
 import { useState, useCallback } from 'react'
 import { cn } from '../../lib/utils'

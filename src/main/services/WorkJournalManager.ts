@@ -35,6 +35,7 @@ import type {
   WorkEntryCallback,
   UnsubscribeFn
 } from '../../shared/types/workJournal'
+import { SummarizationService } from './SummarizationService'
 
 
 // ============================================================================
@@ -528,9 +529,41 @@ export class WorkJournalManager {
   // Checkpointing
   // ==========================================================================
 
+  /** Summarization service instance for AI-powered checkpoints */
+  private summarizationService: SummarizationService | null = null;
+  
+  /** Configuration for AI summarization */
+  private aiSummarizationEnabled: boolean = true;
+
+  /**
+   * Get or create the summarization service
+   */
+  private getSummarizationService(): SummarizationService {
+    if (!this.summarizationService) {
+      this.summarizationService = new SummarizationService();
+    }
+    return this.summarizationService;
+  }
+
+  /**
+   * Enable or disable AI summarization
+   */
+  setAISummarizationEnabled(enabled: boolean): void {
+    this.aiSummarizationEnabled = enabled;
+    console.log(`[WorkJournal] AI summarization ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Check if AI summarization is enabled
+   */
+  isAISummarizationEnabled(): boolean {
+    return this.aiSummarizationEnabled;
+  }
+
   /**
    * Create a checkpoint for a session
    * Summarizes work done so far for efficient resumption
+   * Uses AI summarization when available, falls back to heuristic
    */
   async createCheckpoint(
     sessionId: string, 
@@ -544,7 +577,39 @@ export class WorkJournalManager {
     }
 
     const entries = this.getEntries(sessionId);
-    const checkpoint = this.buildCheckpoint(session, entries, options?.manual ?? false);
+    let checkpoint: WorkCheckpoint;
+
+    // Try AI summarization if enabled and not explicitly disabled
+    const useAI = this.aiSummarizationEnabled && options?.useAISummarization !== false;
+    
+    if (useAI) {
+      try {
+        const summarizer = this.getSummarizationService();
+        const aiResult = await summarizer.summarizeWorkSession(
+          session,
+          entries,
+          { targetTokens: options?.targetTokens ?? 500 }
+        );
+
+        checkpoint = {
+          id: randomUUID(),
+          sessionId: session.id,
+          createdAt: Date.now(),
+          summary: aiResult.summary,
+          keyDecisions: aiResult.keyDecisions,
+          currentState: aiResult.currentState,
+          filesModified: aiResult.filesModified.map(f => f.path),
+          pendingActions: aiResult.suggestedNextSteps
+        };
+
+        console.log('[WorkJournal] Created AI-powered checkpoint');
+      } catch (error) {
+        console.warn('[WorkJournal] AI summarization failed, using heuristic:', error);
+        checkpoint = this.buildCheckpoint(session, entries, options?.manual ?? false);
+      }
+    } else {
+      checkpoint = this.buildCheckpoint(session, entries, options?.manual ?? false);
+    }
 
     // Store checkpoint
     this.stmts.createCheckpoint.run(
@@ -666,6 +731,62 @@ export class WorkJournalManager {
       default:
         return entry.entryType;
     }
+  }
+
+
+  /**
+   * Summarize a session on-demand (without creating a checkpoint)
+   * Useful for getting a summary without persisting it
+   */
+  async summarizeSession(
+    sessionId: string,
+    options?: { targetTokens?: number; useAI?: boolean }
+  ): Promise<{
+    summary: string;
+    keyDecisions: string[];
+    currentState: string;
+    suggestedNextSteps: string[];
+    usedAI: boolean;
+  }> {
+    this.ensureInitialized();
+
+    const session = this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+
+    const entries = this.getEntries(sessionId);
+    const useAI = options?.useAI !== false && this.aiSummarizationEnabled;
+
+    if (useAI) {
+      try {
+        const summarizer = this.getSummarizationService();
+        const result = await summarizer.summarizeWorkSession(
+          session,
+          entries,
+          { targetTokens: options?.targetTokens ?? 500 }
+        );
+        return {
+          summary: result.summary,
+          keyDecisions: result.keyDecisions,
+          currentState: result.currentState,
+          suggestedNextSteps: result.suggestedNextSteps,
+          usedAI: result.usedAI
+        };
+      } catch (error) {
+        console.warn('[WorkJournal] AI summarization failed:', error);
+      }
+    }
+
+    // Fallback to heuristic
+    const checkpoint = this.buildCheckpoint(session, entries, false);
+    return {
+      summary: checkpoint.summary,
+      keyDecisions: checkpoint.keyDecisions,
+      currentState: checkpoint.currentState,
+      suggestedNextSteps: checkpoint.pendingActions,
+      usedAI: false
+    };
   }
 
 

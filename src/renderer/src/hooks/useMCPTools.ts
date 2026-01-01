@@ -73,17 +73,27 @@ export function useMCPTools(): UseMCPToolsResult {
 
       const executionId = `exec-${++executionIdRef.current}`
 
+      console.log('[useMCPTools] executeTool called:', {
+        executionId,
+        toolName,
+        explanation: explanation?.substring(0, 50)
+      })
+
       // Add pending execution
-      setToolExecutions((prev) => [
-        ...prev,
-        {
-          id: executionId,
-          toolName,
-          args,
-          explanation: explanation || '',
-          status: 'executing'
-        }
-      ])
+      setToolExecutions((prev) => {
+        const next = [
+          ...prev,
+          {
+            id: executionId,
+            toolName,
+            args,
+            explanation: explanation || '',
+            status: 'executing' as const
+          }
+        ]
+        console.log('[useMCPTools] Added executing tool, new count:', next.length)
+        return next
+      })
 
       setIsProcessingTool(true)
 
@@ -92,12 +102,12 @@ export function useMCPTools(): UseMCPToolsResult {
         const result = await requestTool(toolName, args, explanation, skipApproval)
 
         // Update execution status
-        setToolExecutions((prev) =>
-          prev.map((exec) =>
+        setToolExecutions((prev) => {
+          const next = prev.map((exec) =>
             exec.id === executionId
               ? {
                   ...exec,
-                  status: result.success ? 'completed' : 'error',
+                  status: (result.success ? 'completed' : 'error') as ToolExecution['status'],
                   result: result.result,
                   error: result.error,
                   duration: result.duration,
@@ -105,7 +115,13 @@ export function useMCPTools(): UseMCPToolsResult {
                 }
               : exec
           )
-        )
+          console.log('[useMCPTools] Tool execution completed:', {
+            executionId,
+            success: result.success,
+            totalExecutions: next.length
+          })
+          return next
+        })
 
         return result
       } catch (error) {

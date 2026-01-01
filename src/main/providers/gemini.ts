@@ -1,6 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenerativeAI, type Tool } from '@google/generative-ai'
 import { AIProvider } from './base'
 import { AIModel, StreamParams } from './types'
+import { toGeminiFunctions } from './toolFormatter'
+import { mcpManager } from '../mcp/manager'
 
 const DEFAULT_MODEL = 'gemini-2.5-flash'
 
@@ -103,11 +105,12 @@ export class GeminiProvider implements AIProvider {
       throw new Error('API key is required for Gemini provider')
     }
 
-    const { window, messages, modelId } = params
+    const { window, messages, modelId, enableTools = true } = params
 
     console.log('[Gemini] streamResponse called')
     console.log('[Gemini] Using model:', modelId)
     console.log('[Gemini] Total messages received:', messages.length)
+    console.log('[Gemini] Native tools enabled:', enableTools)
 
     try {
       const genAI = new GoogleGenerativeAI(apiKey)
@@ -116,22 +119,30 @@ export class GeminiProvider implements AIProvider {
       console.log('[Gemini] System instruction:', systemMessage ? 'Present' : 'None')
       if (systemMessage) {
         console.log('[Gemini] System instruction length:', systemMessage.content.length)
-        // Check if tool instructions are included
-        if (systemMessage.content.includes('ArborChat Tool Integration')) {
-          console.log('[Gemini] ✅ Tool instructions INCLUDED in system prompt')
-        } else {
-          console.log('[Gemini] ⚠️ Tool instructions NOT FOUND in system prompt')
-          console.log('[Gemini] System prompt preview:', systemMessage.content.substring(0, 300))
-        }
-      } else {
-        console.log('[Gemini] ⚠️ No system message found!')
       }
 
-      // Create model with system instruction if provided
+      // Get available tools if enabled
+      let tools: Tool[] | undefined
+      if (enableTools) {
+        const mcpTools = mcpManager.getAvailableTools()
+        if (mcpTools.length > 0) {
+          const functionDeclarations = toGeminiFunctions(mcpTools)
+          tools = [{
+            functionDeclarations
+          }]
+          console.log(`[Gemini] ✅ Configured ${functionDeclarations.length} native functions`)
+          console.log(`[Gemini] Tools: ${mcpTools.map(t => t.name).slice(0, 10).join(', ')}${mcpTools.length > 10 ? '...' : ''}`)
+        } else {
+          console.log('[Gemini] ⚠️ No MCP tools available for native function calling')
+        }
+      }
+
+      // Create model with system instruction AND tools
       const model = genAI.getGenerativeModel(
         {
           model: modelId,
-          systemInstruction: systemMessage?.content
+          systemInstruction: systemMessage?.content,
+          tools
         },
         { apiVersion: 'v1beta' }
       )
@@ -177,23 +188,32 @@ export class GeminiProvider implements AIProvider {
         console.log('[Gemini] Stream started, awaiting chunks...')
         let chunkCount = 0
         let fullResponse = ''
+        
         for await (const chunk of result.stream) {
-          const text = chunk.text()
-          if (text) {
-            chunkCount++
-            fullResponse += text
-            window.webContents.send('ai:token', text)
+          const candidate = chunk.candidates?.[0]
+          if (!candidate?.content?.parts) continue
+          
+          for (const part of candidate.content.parts) {
+            // Handle text content
+            if ('text' in part && part.text) {
+              chunkCount++
+              fullResponse += part.text
+              window.webContents.send('ai:token', part.text)
+            }
+            
+            // Handle native function calls
+            if ('functionCall' in part && part.functionCall) {
+              console.log('[Gemini] ✅ Native function call detected:', part.functionCall.name)
+              window.webContents.send('ai:function_call', {
+                name: part.functionCall.name,
+                args: part.functionCall.args || {}
+              })
+            }
           }
         }
+        
         console.log('[Gemini] Stream complete. Total chunks:', chunkCount)
         console.log('[Gemini] Full response preview:', fullResponse.substring(0, 500))
-
-        // Check for tool_use pattern
-        if (fullResponse.includes('```tool_use')) {
-          console.log('[Gemini] ✅ Tool use block detected in response!')
-        } else {
-          console.log('[Gemini] ❌ No tool_use block in response')
-        }
 
         window.webContents.send('ai:done')
       } catch (streamErr) {
@@ -216,5 +236,57 @@ export class GeminiProvider implements AIProvider {
       window.webContents.send('ai:error', e instanceof Error ? e.message : 'Unknown error')
       throw e
     }
+  }
+}
+
+
+// ============================================================================
+// Non-Streaming Completion (for summarization)
+// ============================================================================
+
+/**
+ * Generate a non-streaming completion for summarization
+ * More efficient than streaming for short, structured outputs
+ * 
+ * @param apiKey - Gemini API key
+ * @param prompt - The prompt to send
+ * @param options - Generation options
+ * @returns The generated text response
+ */
+export async function generateCompletion(
+  apiKey: string,
+  prompt: string,
+  options?: {
+    model?: string
+    maxTokens?: number
+    temperature?: number
+  }
+): Promise<string> {
+  const genAI = new GoogleGenerativeAI(apiKey)
+  const model = genAI.getGenerativeModel(
+    { model: options?.model || 'gemini-2.5-flash' },
+    { apiVersion: 'v1beta' }
+  )
+
+  console.log(`[Gemini] generateCompletion with model: ${options?.model || 'gemini-2.5-flash'}`)
+
+  try {
+    const result = await retryWithBackoff(async () => {
+      return await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          maxOutputTokens: options?.maxTokens || 1000,
+          temperature: options?.temperature ?? 0.3 // Lower for more consistent summaries
+        }
+      })
+    })
+
+    const text = result.response.text()
+    console.log(`[Gemini] Completion generated, length: ${text.length}`)
+    return text
+
+  } catch (error) {
+    console.error('[Gemini] generateCompletion ERROR:', error)
+    throw error
   }
 }

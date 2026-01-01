@@ -1,8 +1,12 @@
 // src/main/providers/openai.ts
+// Phase 2: Native Function Calling Implementation  
+// Author: Alex Chen (Distinguished Software Architect)
 
 import OpenAI from 'openai'
 import { AIProvider } from './base'
 import { AIModel, StreamParams } from './types'
+import { toOpenAIFunctions } from './toolFormatter'
+import { mcpManager } from '../mcp/manager'
 
 /**
  * Available OpenAI models (direct API)
@@ -55,7 +59,7 @@ const OPENAI_MODELS: AIModel[] = [
 
 /**
  * OpenAI Direct API Provider implementation
- * Provides access to OpenAI models via their official API
+ * Phase 2: Native function calling support
  */
 export class OpenAIProvider implements AIProvider {
   readonly name = 'openai'
@@ -109,29 +113,32 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 
-
   /**
    * Get available OpenAI models
    */
   async getAvailableModels(_apiKey?: string): Promise<AIModel[]> {
-    // Return static list of primary models
-    // Could be enhanced to fetch from API in the future
     return OPENAI_MODELS
   }
 
   /**
-   * Stream response from OpenAI API
+   * Stream response from OpenAI API with native function calling
+   * 
+   * OpenAI's function calling format:
+   * - Functions are passed in the tools parameter
+   * - Response includes tool_calls array with id, function name, arguments
+   * - Arguments come as JSON string that may be streamed in chunks
    */
   async streamResponse(params: StreamParams, apiKey?: string): Promise<void> {
     if (!apiKey) {
       throw new Error('API key is required for OpenAI provider')
     }
 
-    const { window, messages, modelId } = params
+    const { window, messages, modelId, enableTools = true } = params
 
     console.log('[OpenAI] streamResponse called')
     console.log('[OpenAI] Using model:', modelId)
     console.log('[OpenAI] Total messages received:', messages.length)
+    console.log('[OpenAI] Native tools enabled:', enableTools)
 
     try {
       const client = new OpenAI({ apiKey })
@@ -143,44 +150,113 @@ export class OpenAIProvider implements AIProvider {
         console.log('[OpenAI] System instruction length:', systemMessage.content.length)
       }
 
+      // Get available tools if enabled
+      let tools: OpenAI.ChatCompletionTool[] | undefined
+      if (enableTools) {
+        const mcpTools = mcpManager.getAvailableTools()
+        if (mcpTools.length > 0) {
+          tools = toOpenAIFunctions(mcpTools) as OpenAI.ChatCompletionTool[]
+          console.log(`[OpenAI] ✅ Configured ${tools.length} native functions`)
+          console.log(`[OpenAI] Tools: ${mcpTools.map(t => t.name).slice(0, 10).join(', ')}${mcpTools.length > 10 ? '...' : ''}`)
+        } else {
+          console.log('[OpenAI] ⚠️ No MCP tools available for native function calling')
+        }
+      }
+
       // Convert messages to OpenAI format
-      const openaiMessages = messages.map((m) => ({
+      const openaiMessages: OpenAI.ChatCompletionMessageParam[] = messages.map((m) => ({
         role: m.role as 'system' | 'user' | 'assistant',
         content: m.content
       }))
 
       console.log('[OpenAI] Conversation messages:', openaiMessages.length)
 
-      // Stream the response
+      // Stream the response with native function calling
       const stream = await client.chat.completions.create({
         model: modelId,
         max_tokens: 8192,
         messages: openaiMessages,
+        tools: tools,
         stream: true
       })
 
       console.log('[OpenAI] Stream started, awaiting chunks...')
       let chunkCount = 0
       let fullResponse = ''
+      
+      // Track tool calls being built (OpenAI streams arguments incrementally)
+      const activeToolCalls: Map<number, {
+        id: string
+        name: string
+        arguments: string
+      }> = new Map()
 
       for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content
-        if (delta) {
+        const delta = chunk.choices[0]?.delta
+
+        // Handle text content
+        if (delta?.content) {
           chunkCount++
-          fullResponse += delta
-          window.webContents.send('ai:token', delta)
+          fullResponse += delta.content
+          window.webContents.send('ai:token', delta.content)
+        }
+
+        // Handle tool calls (function calling)
+        if (delta?.tool_calls) {
+          for (const toolCallDelta of delta.tool_calls) {
+            const index = toolCallDelta.index
+            
+            // New tool call starting
+            if (toolCallDelta.id) {
+              activeToolCalls.set(index, {
+                id: toolCallDelta.id,
+                name: toolCallDelta.function?.name || '',
+                arguments: toolCallDelta.function?.arguments || ''
+              })
+              console.log(`[OpenAI] Tool call started [${index}]:`, toolCallDelta.function?.name)
+            } else {
+              // Continuing to build arguments for existing tool call
+              const existing = activeToolCalls.get(index)
+              if (existing) {
+                if (toolCallDelta.function?.name) {
+                  existing.name = toolCallDelta.function.name
+                }
+                if (toolCallDelta.function?.arguments) {
+                  existing.arguments += toolCallDelta.function.arguments
+                }
+              }
+            }
+          }
+        }
+
+        // Check for finish reason indicating tool calls are complete
+        const finishReason = chunk.choices[0]?.finish_reason
+        if (finishReason === 'tool_calls' || finishReason === 'stop') {
+          // Emit all completed tool calls
+          for (const [index, toolCall] of activeToolCalls) {
+            if (toolCall.name && toolCall.arguments) {
+              try {
+                const args = JSON.parse(toolCall.arguments)
+                console.log(`[OpenAI] ✅ Emitting function call [${index}]:`, toolCall.name)
+                console.log(`[OpenAI] Tool args:`, JSON.stringify(args).substring(0, 200))
+                
+                window.webContents.send('ai:function_call', {
+                  name: toolCall.name,
+                  args: args,
+                  toolCallId: toolCall.id  // OpenAI needs this for tool response
+                })
+              } catch (parseError) {
+                console.error(`[OpenAI] Failed to parse tool arguments for ${toolCall.name}:`, parseError)
+                console.error('[OpenAI] Raw arguments:', toolCall.arguments)
+              }
+            }
+          }
+          activeToolCalls.clear()
         }
       }
 
       console.log('[OpenAI] Stream complete. Total chunks:', chunkCount)
-      console.log('[OpenAI] Full response preview:', fullResponse.substring(0, 500))
-
-      // Check for tool_use pattern
-      if (fullResponse.includes('```tool_use')) {
-        console.log('[OpenAI] ✅ Tool use block detected in response!')
-      } else {
-        console.log('[OpenAI] ❌ No tool_use block in response')
-      }
+      console.log('[OpenAI] Full response preview:', fullResponse.substring(0, 300))
 
       window.webContents.send('ai:done')
     } catch (error: unknown) {
@@ -189,5 +265,52 @@ export class OpenAIProvider implements AIProvider {
       window.webContents.send('ai:error', errorMessage)
       throw error
     }
+  }
+}
+
+
+// ============================================================================
+// Non-Streaming Completion (for summarization)
+// ============================================================================
+
+/**
+ * Generate a non-streaming completion for summarization
+ * More efficient than streaming for short, structured outputs
+ * 
+ * @param apiKey - OpenAI API key
+ * @param prompt - The prompt to send
+ * @param options - Generation options
+ * @returns The generated text response
+ */
+export async function generateCompletion(
+  apiKey: string,
+  prompt: string,
+  options?: {
+    model?: string
+    maxTokens?: number
+    temperature?: number
+  }
+): Promise<string> {
+  const client = new OpenAI({ apiKey })
+  const model = options?.model || 'gpt-4.1-mini'
+
+  console.log(`[OpenAI] generateCompletion with model: ${model}`)
+
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      max_tokens: options?.maxTokens || 1000,
+      temperature: options?.temperature ?? 0.3,
+      messages: [{ role: 'user', content: prompt }]
+    })
+
+    const text = response.choices[0]?.message?.content || ''
+
+    console.log(`[OpenAI] Completion generated, length: ${text.length}`)
+    return text
+
+  } catch (error) {
+    console.error('[OpenAI] generateCompletion ERROR:', error)
+    throw error
   }
 }

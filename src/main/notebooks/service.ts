@@ -27,6 +27,7 @@ let db: Database.Database
  * Creates tables and indexes if they don't exist
  */
 export function initNotebookTables(): void {
+  console.log('[NotebookService] Initializing database connection to:', dbPath)
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
 
@@ -63,6 +64,14 @@ export function initNotebookTables(): void {
     CREATE INDEX IF NOT EXISTS idx_entries_source ON notebook_entries(source_message_id);
     CREATE INDEX IF NOT EXISTS idx_notebooks_updated ON notebooks(updated_at DESC);
   `)
+
+  // Phase 6: Add sort_order column for drag-and-drop reordering
+  try {
+    db.exec(`ALTER TABLE notebook_entries ADD COLUMN sort_order INTEGER DEFAULT 0`)
+    console.log('[NotebookService] Added sort_order column')
+  } catch {
+    // Column already exists - this is expected on subsequent runs
+  }
 
   console.log('[NotebookService] Database tables initialized')
 }
@@ -107,9 +116,12 @@ export function createNotebook(input: CreateNotebookInput): Notebook {
  * Get all notebooks ordered by last updated
  */
 export function getNotebooks(): Notebook[] {
-  return db
+  console.log('[NotebookService] getNotebooks called')
+  const result = db
     .prepare('SELECT * FROM notebooks ORDER BY updated_at DESC')
     .all() as Notebook[]
+  console.log('[NotebookService] Found notebooks:', result.length, result.map(n => n.name))
+  return result
 }
 
 /**
@@ -215,10 +227,11 @@ export function createEntry(input: CreateEntryInput): NotebookEntry {
 
 /**
  * Get all entries for a notebook
+ * Sorted by sort_order (ascending) then created_at (descending) for new entries
  */
 export function getEntries(notebookId: string): NotebookEntry[] {
   const rows = db
-    .prepare('SELECT * FROM notebook_entries WHERE notebook_id = ? ORDER BY created_at DESC')
+    .prepare('SELECT * FROM notebook_entries WHERE notebook_id = ? ORDER BY sort_order ASC, created_at DESC')
     .all(notebookId) as Record<string, unknown>[]
 
   return rows.map(row => ({
@@ -385,4 +398,129 @@ export function exportNotebookAsMarkdown(id: string): string | null {
   }
 
   return markdown
+}
+
+
+/**
+ * Export a notebook as JSON
+ */
+export function exportNotebookAsJSON(id: string): string | null {
+  const notebook = getNotebook(id)
+  if (!notebook) return null
+
+  const entries = getEntries(id)
+
+  return JSON.stringify({
+    notebook: {
+      id: notebook.id,
+      name: notebook.name,
+      description: notebook.description,
+      emoji: notebook.emoji,
+      color: notebook.color,
+      created_at: notebook.created_at,
+      updated_at: notebook.updated_at
+    },
+    entries: entries.map(e => ({
+      id: e.id,
+      content: e.content,
+      title: e.title,
+      tags: e.tags,
+      source_role: e.source_role,
+      created_at: e.created_at,
+      updated_at: e.updated_at
+    })),
+    exported_at: new Date().toISOString(),
+    version: '1.0'
+  }, null, 2)
+}
+
+/**
+ * Export a notebook as plain text
+ */
+export function exportNotebookAsText(id: string): string | null {
+  const notebook = getNotebook(id)
+  if (!notebook) return null
+
+  const entries = getEntries(id)
+
+  let text = `${notebook.emoji} ${notebook.name}\n`
+  if (notebook.description) {
+    text += `${notebook.description}\n`
+  }
+  text += '\n---\n\n'
+
+  for (const entry of entries) {
+    if (entry.title) {
+      text += `${entry.title}\n\n`
+    }
+    text += `${entry.content}\n\n`
+    text += '---\n\n'
+  }
+
+  return text
+}
+
+
+// ============ REORDER OPERATIONS ============
+
+/**
+ * Reorder entries within a notebook
+ * Updates sort_order based on the provided ordered array of entry IDs
+ */
+export function reorderEntries(notebookId: string, orderedIds: string[]): boolean {
+  const transaction = db.transaction(() => {
+    const stmt = db.prepare('UPDATE notebook_entries SET sort_order = ? WHERE id = ? AND notebook_id = ?')
+    orderedIds.forEach((id, index) => {
+      stmt.run(index, id, notebookId)
+    })
+  })
+
+  try {
+    transaction()
+    return true
+  } catch (err) {
+    console.error('[NotebookService] Failed to reorder entries:', err)
+    return false
+  }
+}
+
+// ============ BULK OPERATIONS ============
+
+/**
+ * Delete multiple entries at once
+ * Updates notebook entry counts accordingly
+ */
+export function bulkDeleteEntries(ids: string[]): boolean {
+  if (ids.length === 0) return true
+
+  const transaction = db.transaction(() => {
+    // Get notebook IDs for count updates
+    const placeholders = ids.map(() => '?').join(',')
+    const entries = db.prepare(
+      `SELECT notebook_id, COUNT(*) as count FROM notebook_entries WHERE id IN (${placeholders}) GROUP BY notebook_id`
+    ).all(...ids) as { notebook_id: string; count: number }[]
+
+    // Delete entries
+    const deleteStmt = db.prepare(
+      `DELETE FROM notebook_entries WHERE id IN (${placeholders})`
+    )
+    deleteStmt.run(...ids)
+
+    // Update notebook counts
+    const updateStmt = db.prepare(
+      'UPDATE notebooks SET entry_count = entry_count - ?, updated_at = ? WHERE id = ?'
+    )
+    const now = new Date().toISOString()
+    for (const { notebook_id, count } of entries) {
+      updateStmt.run(count, now, notebook_id)
+    }
+  })
+
+  try {
+    transaction()
+    return true
+  } catch (err) {
+    console.error('[NotebookService] Bulk delete failed:', err)
+    return false
+  }
 }

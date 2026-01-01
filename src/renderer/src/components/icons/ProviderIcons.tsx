@@ -1,59 +1,53 @@
 /**
  * Provider Icons - Official AI provider logo icons as React components
- * These are based on official brand assets and Bootstrap Icons
+ * Based on official brand assets
  */
 
-import { SVGProps } from 'react'
+import React, { SVGProps } from 'react'
+import type { ModelProvider } from '../../types'
 
 interface IconProps extends SVGProps<SVGSVGElement> {
   size?: number
 }
 
 /**
- * Anthropic Claude Logo - Official icon based on Bootstrap Icons
- * Orange/beige colored abstract mark
+ * Anthropic Claude Logo - Official starburst/sunburst pattern
+ * Coral/orange colored rays emanating from center
  */
-export function ClaudeIcon({ size = 16, className, ...props }: IconProps) {
+export function ClaudeIcon({ size = 20, className, ...props }: IconProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       width={size}
       height={size}
-      viewBox="0 0 16 16"
-      fill="currentColor"
+      viewBox="0 0 24 24"
+      fill="#D97757"
       className={className}
       {...props}
     >
-      <path d="m3.127 10.604 3.135-1.76.053-.153-.053-.085H6.11l-.525-.032-1.791-.048-1.554-.065-1.505-.08-.38-.081L0 7.832l.036-.234.32-.214.455.04 1.009.069 1.513.105 1.097.064 1.626.17h.259l.036-.105-.089-.065-.068-.064-1.566-1.062-1.695-1.121-.887-.646-.48-.327-.243-.306-.104-.67.435-.48.585.04.15.04.593.456 1.267.981 1.654 1.218.242.202.097-.068.012-.049-.109-.181-.9-1.626-.96-1.655-.428-.686-.113-.411a2 2 0 0 1-.068-.484l.496-.674L4.446 0l.662.089.279.242.411.94.666 1.48 1.033 2.014.302.597.162.553.06.17h.105v-.097l.085-1.134.157-1.392.154-1.792.052-.504.25-.605.497-.327.387.186.319.456-.045.294-.19 1.23-.37 1.93-.243 1.29h.142l.161-.16.654-.868 1.097-1.372.484-.545.565-.601.363-.287h.686l.505.751-.226.775-.707.895-.585.759-.839 1.13-.524.904.048.072.125-.012 1.897-.403 1.024-.186 1.223-.21.553.258.06.263-.218.536-1.307.323-1.533.307-2.284.54-.028.02.032.04 1.029.098.44.024h1.077l2.005.15.525.346.315.424-.053.323-.807.411-3.631-.863-.872-.218h-.12v.073l.726.71 1.331 1.202 1.667 1.55.084.383-.214.302-.226-.032-1.464-1.101-.565-.497-1.28-1.077h-.084v.113l.295.432 1.557 2.34.08.718-.112.234-.404.141-.444-.08-.911-1.28-.94-1.44-.759-1.291-.093.053-.448 4.821-.21.246-.484.186-.403-.307-.214-.496.214-.98.258-1.28.21-1.016.19-1.263.112-.42-.008-.028-.092.012-.953 1.307-1.448 1.957-1.146 1.227-.274.109-.477-.247.045-.44.266-.39 1.586-2.018.956-1.25.617-.723-.004-.105h-.036l-4.212 2.736-.75.096-.324-.302.04-.496.154-.162 1.267-.871z" />
+      {/* Starburst rays - varying lengths and angles */}
+      <path d="M12 12L12 1" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L17.5 2.5" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L21.5 5" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L23 10" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L22 14" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L19 19" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L14 22" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L8 21" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L3 17" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L1.5 12" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L3 7" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 12L6 3" stroke="#D97757" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="2.5" fill="#D97757" />
     </svg>
   )
 }
 
-/**
- * OpenAI Logo - Official icon based on Bootstrap Icons
- * The hexagonal/flower shaped logo
- */
-export function OpenAIIcon({ size = 16, className, ...props }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="currentColor"
-      className={className}
-      {...props}
-    >
-      <path d="M14.949 6.547a3.94 3.94 0 0 0-.348-3.273 4.11 4.11 0 0 0-4.4-1.934A4.1 4.1 0 0 0 8.423.2 4.15 4.15 0 0 0 6.305.086a4.1 4.1 0 0 0-1.891.948 4.04 4.04 0 0 0-1.158 1.753 4.1 4.1 0 0 0-1.563.679A4 4 0 0 0 .554 4.72a3.99 3.99 0 0 0 .502 4.731 3.94 3.94 0 0 0 .346 3.274 4.11 4.11 0 0 0 4.402 1.933c.382.425.852.764 1.377.995.526.231 1.095.35 1.67.346 1.78.002 3.358-1.132 3.901-2.804a4.1 4.1 0 0 0 1.563-.68 4 4 0 0 0 1.14-1.253 3.99 3.99 0 0 0-.506-4.716m-6.097 8.406a3.05 3.05 0 0 1-1.945-.694l.096-.054 3.23-1.838a.53.53 0 0 0 .265-.455v-4.49l1.366.778q.02.011.025.035v3.722c-.003 1.653-1.361 2.992-3.037 2.996m-6.53-2.75a2.95 2.95 0 0 1-.36-2.01l.095.057L5.29 12.09a.53.53 0 0 0 .527 0l3.949-2.246v1.555a.05.05 0 0 1-.022.041L6.473 13.3c-1.454.826-3.311.335-4.15-1.098m-.85-6.94A3.02 3.02 0 0 1 3.07 3.949v3.785a.51.51 0 0 0 .262.451l3.93 2.237-1.366.779a.05.05 0 0 1-.048 0L2.585 9.342a2.98 2.98 0 0 1-1.113-4.094zm11.216 2.571L8.747 5.576l1.362-.776a.05.05 0 0 1 .048 0l3.265 1.86a3 3 0 0 1 1.173 1.207 2.96 2.96 0 0 1-.27 3.2 3.05 3.05 0 0 1-1.36.997V8.279a.52.52 0 0 0-.276-.445m1.36-2.015-.097-.057-3.226-1.855a.53.53 0 0 0-.53 0L6.249 6.153V4.598a.04.04 0 0 1 .019-.04L9.533 2.7a3.07 3.07 0 0 1 3.257.139c.474.325.843.778 1.066 1.303.223.526.289 1.103.191 1.664zM5.503 8.575 4.139 7.8a.05.05 0 0 1-.026-.037V4.049c0-.57.166-1.127.476-1.607s.752-.864 1.275-1.105a3.08 3.08 0 0 1 3.234.41l-.096.054-3.23 1.838a.53.53 0 0 0-.265.455zm.742-1.577 1.758-1 1.762 1v2l-1.755 1-1.762-1z" />
-    </svg>
-  )
-}
 
 /**
- * Mistral AI Logo - Pixel grid pattern
- * Orange colored distinctive pixel pattern
+ * OpenAI Logo - Official hexagonal/flower logo
  */
-export function MistralIcon({ size = 16, className, ...props }: IconProps) {
+export function OpenAIIcon({ size = 20, className, ...props }: IconProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -64,28 +58,65 @@ export function MistralIcon({ size = 16, className, ...props }: IconProps) {
       className={className}
       {...props}
     >
-      {/* Mistral's distinctive pixel grid pattern */}
-      <rect x="1" y="3" width="4" height="4" />
-      <rect x="1" y="9" width="4" height="4" />
-      <rect x="1" y="15" width="4" height="4" />
-      <rect x="7" y="3" width="4" height="4" fill="#F7D046" />
-      <rect x="7" y="9" width="4" height="4" />
-      <rect x="7" y="15" width="4" height="4" fill="#F7D046" />
-      <rect x="13" y="3" width="4" height="4" />
-      <rect x="13" y="9" width="4" height="4" fill="#F2A73B" />
-      <rect x="13" y="15" width="4" height="4" />
-      <rect x="19" y="3" width="4" height="4" fill="#EE792F" />
-      <rect x="19" y="9" width="4" height="4" />
-      <rect x="19" y="15" width="4" height="4" fill="#EE792F" />
+      <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.8956zm16.0993 3.8558L12.6 8.3829l2.02-1.1638a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
     </svg>
   )
 }
 
 /**
- * Google Gemini Logo - Sparkle/star pattern
- * Blue gradient sparkle icon
+ * Mistral AI Logo - Official "M" shape with gradient horizontal stripes
+ * Yellow to orange gradient from top to bottom
  */
-export function GeminiIcon({ size = 16, className, ...props }: IconProps) {
+export function MistralIcon({ size = 20, className, ...props }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      {...props}
+    >
+      {/* M shape made of horizontal stripes with gradient colors */}
+      {/* Row 1 - Yellow */}
+      <rect x="1" y="1" width="4" height="3" fill="#F7D046" />
+      <rect x="10" y="1" width="4" height="3" fill="#F7D046" />
+      <rect x="19" y="1" width="4" height="3" fill="#F7D046" />
+      {/* Row 2 - Yellow-Orange */}
+      <rect x="1" y="5" width="4" height="3" fill="#F7D046" />
+      <rect x="5" y="5" width="4" height="3" fill="#F7D046" />
+      <rect x="15" y="5" width="4" height="3" fill="#F7D046" />
+      <rect x="19" y="5" width="4" height="3" fill="#F7D046" />
+      {/* Row 3 - Orange */}
+      <rect x="1" y="9" width="4" height="3" fill="#F2A73B" />
+      <rect x="5" y="9" width="4" height="3" fill="#F2A73B" />
+      <rect x="10" y="9" width="4" height="3" fill="#F2A73B" />
+      <rect x="15" y="9" width="4" height="3" fill="#F2A73B" />
+      <rect x="19" y="9" width="4" height="3" fill="#F2A73B" />
+      {/* Row 4 - Dark Orange */}
+      <rect x="1" y="13" width="4" height="3" fill="#EE792F" />
+      <rect x="10" y="13" width="4" height="3" fill="#EE792F" />
+      <rect x="19" y="13" width="4" height="3" fill="#EE792F" />
+      {/* Row 5 - Red-Orange */}
+      <rect x="1" y="17" width="4" height="3" fill="#EB5829" />
+      <rect x="10" y="17" width="4" height="3" fill="#EB5829" />
+      <rect x="19" y="17" width="4" height="3" fill="#EB5829" />
+      {/* Row 6 - Red */}
+      <rect x="1" y="21" width="4" height="2" fill="#EA3326" />
+      <rect x="10" y="21" width="4" height="2" fill="#EA3326" />
+      <rect x="19" y="21" width="4" height="2" fill="#EA3326" />
+    </svg>
+  )
+}
+
+
+/**
+ * Google Gemini Logo - Official sparkle/star with gradient
+ */
+export function GeminiIcon({ size = 20, className, ...props }: IconProps) {
+  const gradientId = `gemini-gradient-${Math.random().toString(36).substr(2, 9)}`
+  
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -97,27 +128,27 @@ export function GeminiIcon({ size = 16, className, ...props }: IconProps) {
       {...props}
     >
       <defs>
-        <linearGradient id="geminiGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#1A73E8" />
-          <stop offset="50%" stopColor="#8B5CF6" />
-          <stop offset="100%" stopColor="#D946EF" />
+        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#4285F4" />
+          <stop offset="25%" stopColor="#9B72CB" />
+          <stop offset="50%" stopColor="#D96570" />
+          <stop offset="75%" stopColor="#D96570" />
+          <stop offset="100%" stopColor="#9B72CB" />
         </linearGradient>
       </defs>
       <path
-        d="M12 2C12 2 12 8.5 12 12C12 12 5.5 12 2 12C2 12 8.5 12 12 12C12 12 12 18.5 12 22C12 22 12 15.5 12 12C12 12 18.5 12 22 12C22 12 15.5 12 12 12Z"
-        fill="url(#geminiGradient)"
+        d="M12 2C12 7.52 7.52 12 2 12C7.52 12 12 16.48 12 22C12 16.48 16.48 12 22 12C16.48 12 12 7.52 12 2Z"
+        fill={`url(#${gradientId})`}
       />
-      <ellipse cx="12" cy="12" rx="3" ry="10" fill="url(#geminiGradient)" />
-      <ellipse cx="12" cy="12" rx="10" ry="3" fill="url(#geminiGradient)" />
     </svg>
   )
 }
 
 /**
- * GitHub Copilot Logo - The flying saucer/visor icon
- * Purple colored distinctive icon
+ * GitHub Copilot Logo - Robot face with headphones and goggles
+ * Rounded head with ear pieces, large oval eyes, rectangular mouth with slots
  */
-export function GitHubCopilotIcon({ size = 16, className, ...props }: IconProps) {
+export function GitHubCopilotIcon({ size = 20, className, ...props }: IconProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -128,18 +159,30 @@ export function GitHubCopilotIcon({ size = 16, className, ...props }: IconProps)
       className={className}
       {...props}
     >
-      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" opacity="0.3" />
-      <path d="M9.5 14.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5-1.5.67-1.5 1.5zm5 0c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5-1.5.67-1.5 1.5z" />
-      <path d="M12 4c-3.31 0-6 2.69-6 6v2c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-2c0-3.31-2.69-6-6-6zm4 8H8v-2c0-2.21 1.79-4 4-4s4 1.79 4 4v2z" />
+      {/* Left ear/headphone piece */}
+      <rect x="1" y="7" width="4" height="10" rx="2" fill="currentColor" />
+      {/* Right ear/headphone piece */}
+      <rect x="19" y="7" width="4" height="10" rx="2" fill="currentColor" />
+      {/* Main head - rounded rectangle */}
+      <rect x="4" y="4" width="16" height="16" rx="4" fill="currentColor" />
+      {/* Left goggle eye - large oval */}
+      <ellipse cx="8.5" cy="10" rx="3" ry="2.5" fill="white" />
+      {/* Right goggle eye - large oval */}
+      <ellipse cx="15.5" cy="10" rx="3" ry="2.5" fill="white" />
+      {/* Mouth area - rounded rectangle */}
+      <rect x="8" y="14" width="8" height="4" rx="1" fill="white" />
+      {/* Left mouth slot */}
+      <rect x="9.5" y="15" width="2" height="2" rx="0.5" fill="currentColor" />
+      {/* Right mouth slot */}
+      <rect x="12.5" y="15" width="2" height="2" rx="0.5" fill="currentColor" />
     </svg>
   )
 }
 
 /**
- * Ollama Logo - Llama head icon
- * The distinctive llama silhouette
+ * Ollama Logo - Official llama silhouette
  */
-export function OllamaIcon({ size = 16, className, ...props }: IconProps) {
+export function OllamaIcon({ size = 20, className, ...props }: IconProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -150,7 +193,47 @@ export function OllamaIcon({ size = 16, className, ...props }: IconProps) {
       className={className}
       {...props}
     >
-      <path d="M12 2C9.5 2 7.5 4 7.5 6.5c0 1.5.7 2.8 1.8 3.7-.3.2-.5.5-.8.8-1.5 1.5-2 4-2 6v3c0 .6.4 1 1 1s1-.4 1-1v-3c0-1.5.3-3.3 1.2-4.3.4-.4.8-.7 1.3-.9.3.1.7.2 1 .2s.7-.1 1-.2c.5.2.9.5 1.3.9.9 1 1.2 2.8 1.2 4.3v3c0 .6.4 1 1 1s1-.4 1-1v-3c0-2-.5-4.5-2-6-.3-.3-.5-.6-.8-.8 1.1-.9 1.8-2.2 1.8-3.7C16.5 4 14.5 2 12 2zm0 2c1.4 0 2.5 1.1 2.5 2.5S13.4 9 12 9s-2.5-1.1-2.5-2.5S10.6 4 12 4zm-1 3c-.3 0-.5.2-.5.5s.2.5.5.5.5-.2.5-.5-.2-.5-.5-.5zm2 0c-.3 0-.5.2-.5.5s.2.5.5.5.5-.2.5-.5-.2-.5-.5-.5z" />
+      <path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7zm-2.5 6a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm5 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-4.5 5h4a2 2 0 0 1-4 0z" />
     </svg>
   )
+}
+
+
+/**
+ * Helper function to get provider icon component by provider ID
+ */
+export function getProviderIcon(providerId: ModelProvider, size: number = 20): React.ReactElement {
+  const iconMap: Record<ModelProvider, React.ReactElement> = {
+    anthropic: <ClaudeIcon size={size} />,
+    openai: <OpenAIIcon size={size} />,
+    mistral: <MistralIcon size={size} />,
+    gemini: <GeminiIcon size={size} />,
+    github: <GitHubCopilotIcon size={size} />,
+    ollama: <OllamaIcon size={size} />
+  }
+  
+  return iconMap[providerId] || <OpenAIIcon size={size} />
+}
+
+/**
+ * Provider Icon component that renders the appropriate icon based on provider ID
+ */
+interface ProviderIconProps {
+  provider: ModelProvider
+  size?: number
+  className?: string
+}
+
+export function ProviderIcon({ provider, size = 20, className }: ProviderIconProps) {
+  const iconComponents: Record<ModelProvider, React.FC<IconProps>> = {
+    anthropic: ClaudeIcon,
+    openai: OpenAIIcon,
+    mistral: MistralIcon,
+    gemini: GeminiIcon,
+    github: GitHubCopilotIcon,
+    ollama: OllamaIcon
+  }
+  
+  const IconComponent = iconComponents[provider] || OpenAIIcon
+  return <IconComponent size={size} className={className} />
 }

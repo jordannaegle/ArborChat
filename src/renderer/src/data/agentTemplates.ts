@@ -24,7 +24,9 @@ Provide specific, actionable feedback with file locations and code examples.`,
     toolPermission: 'standard',
     tags: ['review', 'quality', 'analysis'],
     isBuiltIn: true,
-    requiresDirectory: true
+    requiresDirectory: true,
+    autoAnalyzeProject: true,
+    contextTokenBudget: 75000
   },
   {
     id: 'template-bug-fix',
@@ -43,7 +45,9 @@ Be methodical and explain your reasoning at each step.`,
     toolPermission: 'standard',
     tags: ['debug', 'fix', 'troubleshoot'],
     isBuiltIn: true,
-    requiresDirectory: true
+    requiresDirectory: true,
+    autoAnalyzeProject: true,
+    contextTokenBudget: 50000
   },
   {
     id: 'template-documentation',
@@ -70,7 +74,7 @@ Follow JSDoc/TSDoc conventions for code comments.`,
   {
     id: 'template-refactor',
     name: 'Refactoring',
-    description: 'Improve code structure and maintainability',
+    description: 'Improve code structure and maintainability with dependency-aware execution',
     icon: 'RefreshCw',
     category: 'development',
     instructions: `Please help refactor this code to improve:
@@ -80,11 +84,17 @@ Follow JSDoc/TSDoc conventions for code comments.`,
 4. Elimination of code duplication
 5. Better separation of concerns
 
+IMPORTANT: For multi-file refactoring, plan the execution order carefully.
+Files that are imported by others should be updated first.
+
 Make incremental changes, testing each step, and explain the improvements made.`,
     toolPermission: 'standard',
     tags: ['refactor', 'clean', 'improve'],
     isBuiltIn: true,
-    requiresDirectory: true
+    requiresDirectory: true,
+    autoAnalyzeProject: true,
+    contextTokenBudget: 100000,
+    enableMultiFileOrchestration: true
   },
   {
     id: 'template-test-generation',
@@ -111,7 +121,7 @@ Aim for high coverage while focusing on meaningful tests.`,
   {
     id: 'template-feature-implementation',
     name: 'Feature Implementation',
-    description: 'Build a new feature from requirements',
+    description: 'Build a new feature from requirements with full project context',
     icon: 'Sparkles',
     category: 'development',
     instructions: `Please implement the following feature:
@@ -144,12 +154,15 @@ Ask clarifying questions if requirements are unclear.`,
     toolPermission: 'autonomous',
     tags: ['feature', 'implement', 'build'],
     isBuiltIn: true,
-    requiresDirectory: true
+    requiresDirectory: true,
+    autoAnalyzeProject: true,
+    contextTokenBudget: 75000,
+    enableMultiFileOrchestration: true
   },
   {
     id: 'template-codebase-exploration',
     name: 'Codebase Explorer',
-    description: 'Learn and summarize a codebase structure',
+    description: 'Learn and summarize a codebase structure with auto-detection',
     icon: 'FolderTree',
     category: 'analysis',
     instructions: `Please explore this codebase and provide:
@@ -164,7 +177,9 @@ Create a mental map of how the system works.`,
     toolPermission: 'standard',
     tags: ['explore', 'understand', 'architecture'],
     isBuiltIn: true,
-    requiresDirectory: true
+    requiresDirectory: true,
+    autoAnalyzeProject: true,
+    contextTokenBudget: 100000
   }
 ]
 

@@ -2,20 +2,39 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react'
 import {
-  X, Bot, Send, Pause, Play, AlertCircle,
-  CheckCircle2, Loader2, Sparkles, User, Minimize2, Clock, RotateCcw
+  X, Bot, Send, Pause, Play,
+  Sparkles, User, Minimize2, RotateCcw, Square
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { ModelSelector } from '../ModelSelector'
-import { InlineToolCall } from '../mcp'
+import { InlineToolCall, ToolStepGroup } from '../mcp'
 import type { ToolCallStatus } from '../mcp'
 import { AgentStepTimeline } from './AgentStepTimeline'
-import type { Agent, AgentStatus, AgentMessage, AgentStep } from '../../types/agent'
+import { ExecutionProgressBar } from './ExecutionProgressBar'
+import { AgentDiagnosticsPanel } from './AgentDiagnosticsPanel'
+import { AgentStatusBadgeBordered } from './AgentStatusBadge'
+import type { 
+  Agent, 
+  AgentMessage, 
+  AgentStep,
+  ExecutionPhase,
+  TokenWarningLevel,
+  ExecutionDiagnostics
+} from '../../types/agent'
+import type { WatchdogState } from '../../hooks'
+import { useSettings } from '../../contexts/SettingsContext'
+import { ResizablePanel } from '../shared'
+import {
+  agentStepToToolStep,
+  agentPendingToolToStep,
+  type AgentToolStepGroupData
+} from '../../lib/agentStepAdapter'
 
 // Timeline item types for unified agent rendering
 type AgentTimelineItem =
   | { type: 'message'; data: AgentMessage; isStreaming: boolean }
   | { type: 'tool_step'; data: AgentStep }
+  | { type: 'tool_step_group'; data: AgentToolStepGroupData }  // Enhanced grouped display
   | { type: 'pending_tool'; data: NonNullable<Agent['pendingToolCall']> }
   | { type: 'streaming_message'; content: string }
   | { type: 'working_indicator' }
@@ -29,6 +48,7 @@ interface AgentPanelProps {
   onSendMessage: (content: string) => void
   onPause: () => void
   onResume: () => void
+  onStop: () => void
   onRetry?: () => void
   canRetry?: boolean
   isRetrying?: boolean
@@ -37,58 +57,26 @@ interface AgentPanelProps {
   onToolApprove: (id: string, modifiedArgs?: Record<string, unknown>) => void
   onToolAlwaysApprove?: (id: string, toolName: string, modifiedArgs?: Record<string, unknown>) => void
   onToolReject: (id: string) => void
+  // Phase 2: Execution monitoring props
+  execution?: {
+    phase: ExecutionPhase
+    currentActivity: string
+    activityStartedAt: number
+    lastProgressAt: number
+    currentToolName?: string
+    currentToolDuration?: number
+  } | null
+  tokens?: {
+    contextUsed: number
+    contextMax: number
+    usagePercent: number
+    warningLevel: TokenWarningLevel
+  } | null
+  diagnostics?: ExecutionDiagnostics
+  watchdogState?: WatchdogState
+  onForceRetry?: () => void
+  onKillTool?: () => void
 }
-
-// Status indicator component - aligned with AgentStatus type
-function StatusBadge({ status, hasPendingTool }: { status: AgentStatus; hasPendingTool?: boolean }) {
-  const statusConfig: Record<AgentStatus, { label: string; color: string; icon: React.ReactNode }> = {
-    created: { 
-      label: 'Starting', 
-      color: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-      icon: <Clock size={12} />
-    },
-    running: { 
-      label: 'Working', 
-      color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-      icon: <Loader2 size={12} className="animate-spin" />
-    },
-    waiting: { 
-      label: hasPendingTool ? 'Needs Approval' : 'Awaiting Input', 
-      color: hasPendingTool 
-        ? 'bg-orange-500/20 text-orange-400 border-orange-500/30 animate-pulse'
-        : 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-      icon: <AlertCircle size={12} />
-    },
-    paused: { 
-      label: 'Paused', 
-      color: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-      icon: <Pause size={12} />
-    },
-    completed: { 
-      label: 'Completed', 
-      color: 'bg-green-500/20 text-green-400 border-green-500/30',
-      icon: <CheckCircle2 size={12} />
-    },
-    failed: { 
-      label: 'Error', 
-      color: 'bg-red-500/20 text-red-400 border-red-500/30',
-      icon: <AlertCircle size={12} />
-    }
-  }
-
-  const config = statusConfig[status]
-
-  return (
-    <div className={cn(
-      'flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border',
-      config.color
-    )}>
-      {config.icon}
-      <span>{config.label}</span>
-    </div>
-  )
-}
-
 
 // Message bubble for agent messages
 function AgentMessageBubble({ 
@@ -160,6 +148,7 @@ export function AgentPanel({
   onSendMessage,
   onPause,
   onResume,
+  onStop,
   onRetry,
   canRetry = false,
   isRetrying = false,
@@ -167,11 +156,22 @@ export function AgentPanel({
   onMinimize,
   onToolApprove,
   onToolAlwaysApprove,
-  onToolReject
+  onToolReject,
+  // Phase 2: Execution monitoring props
+  execution,
+  tokens,
+  diagnostics,
+  watchdogState,
+  onForceRetry,
+  onKillTool
 }: AgentPanelProps) {
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Settings context for enhanced tool display preference
+  const { settings } = useSettings()
+  const useEnhancedToolDisplay = settings.enhancedToolDisplay
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -211,6 +211,10 @@ export function AgentPanel({
     const toolSteps = agent.steps.filter((s) => s.type === 'tool_call' && s.toolCall)
     let toolStepIndex = 0
     
+    // Group ID counter for enhanced display
+    let groupIdCounter = 0
+    const generateGroupId = () => `agent-timeline-group-${Date.now()}-${++groupIdCounter}`
+    
     // Interleave messages with tool steps based on timestamps
     for (let i = 0; i < agent.messages.length; i++) {
       const msg = agent.messages[i]
@@ -225,11 +229,12 @@ export function AgentPanel({
         const nextMsg = agent.messages[i + 1]
         const nextMsgTime = nextMsg ? new Date(nextMsg.timestamp).getTime() : Infinity
         
-        // Add tool steps that happened between this message and the next
+        // Collect tool steps that happened between this message and the next
+        const stepsInRange: AgentStep[] = []
         while (toolStepIndex < toolSteps.length) {
           const step = toolSteps[toolStepIndex]
           if (step.timestamp > msgTime && step.timestamp <= nextMsgTime) {
-            items.push({ type: 'tool_step', data: step })
+            stepsInRange.push(step)
             toolStepIndex++
           } else if (step.timestamp <= msgTime) {
             // Skip steps that are before this message (already processed)
@@ -238,13 +243,61 @@ export function AgentPanel({
             break
           }
         }
+        
+        // Add steps based on feature flag
+        if (stepsInRange.length > 0) {
+          if (useEnhancedToolDisplay) {
+            // Group consecutive steps for enhanced display
+            const toolStepsForGroup = stepsInRange.map(agentStepToToolStep)
+            const hasPending = toolStepsForGroup.some(
+              s => s.type === 'tool_call' && s.toolCall?.status === 'pending'
+            )
+            items.push({
+              type: 'tool_step_group',
+              data: {
+                groupId: generateGroupId(),
+                steps: toolStepsForGroup,
+                collapsed: !hasPending
+              }
+            })
+          } else {
+            // Legacy: add individual tool steps
+            for (const step of stepsInRange) {
+              items.push({ type: 'tool_step', data: step })
+            }
+          }
+        }
       }
     }
     
     // Add any remaining tool steps
-    while (toolStepIndex < toolSteps.length) {
-      items.push({ type: 'tool_step', data: toolSteps[toolStepIndex] })
-      toolStepIndex++
+    if (toolStepIndex < toolSteps.length) {
+      const remainingSteps: AgentStep[] = []
+      while (toolStepIndex < toolSteps.length) {
+        remainingSteps.push(toolSteps[toolStepIndex])
+        toolStepIndex++
+      }
+      
+      if (remainingSteps.length > 0) {
+        if (useEnhancedToolDisplay) {
+          const toolStepsForGroup = remainingSteps.map(agentStepToToolStep)
+          const hasPending = toolStepsForGroup.some(
+            s => s.type === 'tool_call' && s.toolCall?.status === 'pending'
+          )
+          items.push({
+            type: 'tool_step_group',
+            data: {
+              groupId: generateGroupId(),
+              steps: toolStepsForGroup,
+              collapsed: !hasPending
+            }
+          })
+        } else {
+          for (const step of remainingSteps) {
+            items.push({ type: 'tool_step', data: step })
+          }
+        }
+      }
     }
     
     // Add streaming message if there's new content not yet in messages
@@ -255,7 +308,19 @@ export function AgentPanel({
     
     // Add pending tool call
     if (agent.pendingToolCall) {
-      items.push({ type: 'pending_tool', data: agent.pendingToolCall })
+      if (useEnhancedToolDisplay) {
+        // Wrap pending tool in a group for consistent display
+        items.push({
+          type: 'tool_step_group',
+          data: {
+            groupId: generateGroupId(),
+            steps: [agentPendingToolToStep(agent.pendingToolCall)],
+            collapsed: false  // Always show pending approvals expanded
+          }
+        })
+      } else {
+        items.push({ type: 'pending_tool', data: agent.pendingToolCall })
+      }
     }
     
     // Add working indicator when agent is running but no content yet
@@ -264,7 +329,7 @@ export function AgentPanel({
     }
     
     return items
-  }, [agent.messages, agent.steps, agent.pendingToolCall, isStreaming, streamingContent, isWorking])
+  }, [agent.messages, agent.steps, agent.pendingToolCall, isStreaming, streamingContent, isWorking, useEnhancedToolDisplay])
 
   // Get context summary for display
   const contextSummary = agent.config.context.seedMessages.length > 0
@@ -272,13 +337,20 @@ export function AgentPanel({
     : null
 
   return (
-    <div className={cn(
-      'w-[480px] flex flex-col h-full',
-      'bg-gradient-to-b from-tertiary to-background',
-      'border-l border-violet-500/20',
-      'shadow-2xl shadow-violet-500/5',
-      'animate-in slide-in-from-right-full duration-300 ease-out'
-    )}>
+    <ResizablePanel
+      storageKey={`agent-panel-${agent.id}`}
+      defaultWidth={480}
+      minWidth={380}
+      maxWidth={800}
+      className="h-full"
+    >
+      <div className={cn(
+        'w-full flex flex-col h-full',
+        'bg-gradient-to-b from-tertiary to-background',
+        'border-l border-violet-500/20',
+        'shadow-2xl shadow-violet-500/5',
+        'animate-in slide-in-from-right-full duration-300 ease-out'
+      )}>
       {/* Header */}
       <div className="h-14 border-b border-violet-500/20 flex items-center justify-between px-4 bg-tertiary/80 backdrop-blur-sm shrink-0">
         <div className="flex items-center gap-3">
@@ -292,7 +364,12 @@ export function AgentPanel({
         </div>
         
         <div className="flex items-center gap-2">
-          <StatusBadge status={agent.status} hasPendingTool={hasPendingTool} />
+          <AgentStatusBadgeBordered 
+            status={agent.status} 
+            executionPhase={execution?.phase}
+            currentToolName={execution?.currentToolName}
+            hasPendingTool={hasPendingTool} 
+          />
           
           {/* Retry button for failed agents */}
           {canRetry && onRetry && (
@@ -323,6 +400,20 @@ export function AgentPanel({
               title={isPaused ? 'Resume' : 'Pause'}
             >
               {isPaused ? <Play size={16} /> : <Pause size={16} />}
+            </button>
+          )}
+          
+          {/* Stop button - always visible when agent is active */}
+          {(agent.status === 'running' || agent.status === 'waiting' || agent.status === 'paused' || agent.status === 'created') && (
+            <button
+              onClick={onStop}
+              className={cn(
+                'p-1.5 rounded-md transition-colors',
+                'text-red-400 hover:bg-red-500/20 hover:text-red-300'
+              )}
+              title="Stop agent"
+            >
+              <Square size={16} />
             </button>
           )}
           
@@ -376,9 +467,42 @@ export function AgentPanel({
         </div>
       )}
 
+      {/* Phase 2: Execution Progress Bar - Real-time status display */}
+      {execution && execution.phase !== 'idle' && (
+        <ExecutionProgressBar
+          phase={execution.phase}
+          activity={execution.currentActivity}
+          duration={Date.now() - execution.activityStartedAt}
+          toolName={execution.currentToolName}
+          tokenUsage={tokens ? {
+            used: tokens.contextUsed,
+            max: tokens.contextMax,
+            warningLevel: tokens.warningLevel
+          } : undefined}
+          watchdogStatus={watchdogState?.status}
+          timeSinceProgress={watchdogState?.timeSinceProgress}
+          visible={true}
+        />
+      )}
+
+      {/* Phase 2: Diagnostics Panel - Collapsible execution metrics and recovery */}
+      {diagnostics && (isWorking || diagnostics.loopIterations > 0) && (
+        <div className="shrink-0 border-b border-violet-500/10 px-3 py-2">
+          <AgentDiagnosticsPanel
+            diagnostics={diagnostics}
+            watchdogState={watchdogState}
+            onForceRetry={onForceRetry || (() => {})}
+            onKillTool={onKillTool || (() => {})}
+            isToolExecuting={execution?.phase === 'executing_tool'}
+            isRunning={isWorking}
+            defaultCollapsed={true}
+          />
+        </div>
+      )}
+
       {/* Messages Area */}
       <div
-        className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-violet-500/20 scrollbar-track-transparent"
+        className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-violet-500/20 scrollbar-track-transparent"
         ref={scrollRef}
       >
         <div className="py-3 space-y-1">
@@ -412,6 +536,20 @@ export function AgentPanel({
                       error={item.data.toolCall!.error}
                       explanation={item.data.toolCall!.explanation}
                       riskLevel="moderate"
+                    />
+                  </div>
+                )
+              
+              case 'tool_step_group':
+                return (
+                  <div key={item.data.groupId} className="px-3 py-1">
+                    <ToolStepGroup
+                      groupId={item.data.groupId}
+                      steps={item.data.steps}
+                      initialVisible={!item.data.collapsed}
+                      onApprove={onToolApprove}
+                      onAlwaysApprove={onToolAlwaysApprove}
+                      onReject={onToolReject}
                     />
                   </div>
                 )
@@ -521,6 +659,7 @@ export function AgentPanel({
         </form>
       </div>
     </div>
+    </ResizablePanel>
   )
 }
 

@@ -293,8 +293,26 @@ interface WorkJournalAPI {
   ) => Promise<WorkEntry[]>
   
   // Checkpointing
-  createCheckpoint: (sessionId: string, options?: { manual?: boolean }) => Promise<WorkCheckpoint>
+  createCheckpoint: (sessionId: string, options?: { 
+    manual?: boolean
+    useAISummarization?: boolean
+    targetTokens?: number
+  }) => Promise<WorkCheckpoint>
   getLatestCheckpoint: (sessionId: string) => Promise<WorkCheckpoint | null>
+  
+  // AI Summarization (Phase 6)
+  /** Trigger AI summarization for a session without creating a checkpoint */
+  summarizeSession: (sessionId: string, options?: { targetTokens?: number; useAI?: boolean }) => Promise<{
+    summary: string
+    keyDecisions: string[]
+    currentState: string
+    suggestedNextSteps: string[]
+    usedAI: boolean
+  }>
+  /** Enable/disable AI summarization globally */
+  setAISummarizationEnabled: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>
+  /** Get current AI summarization status */
+  getAISummarizationStatus: () => Promise<{ enabled: boolean }>
   
   // Resumption
   generateResumptionContext: (sessionId: string, targetTokens?: number) => Promise<ResumptionContext>
@@ -391,11 +409,224 @@ interface NotebooksAPI {
     create: (input: CreateEntryInput) => Promise<NotebookEntry>
     update: (id: string, input: UpdateEntryInput) => Promise<NotebookEntry | null>
     delete: (id: string) => Promise<boolean>
+    // Phase 6: Reorder and bulk operations
+    reorder: (notebookId: string, orderedIds: string[]) => Promise<boolean>
+    bulkDelete: (ids: string[]) => Promise<boolean>
   }
 
-  // Search & Export
+  // Search
   search: (query: string) => Promise<NotebookSearchResult[]>
-  export: (id: string) => Promise<string | null>
+
+  // Phase 6: Enhanced export options
+  export: {
+    markdown: (id: string) => Promise<string | null>
+    json: (id: string) => Promise<string | null>
+    text: (id: string) => Promise<string | null>
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Arbor Memory Types - Native persistent memory for AI conversations
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Memory type classification determines how the memory is categorized. */
+type ArborMemoryType = 
+  | 'preference'    // User preferences (dark mode, coding style)
+  | 'fact'          // Facts about user (name, role, projects)
+  | 'context'       // Contextual info (current goals, recent work)
+  | 'skill'         // User skills/expertise
+  | 'instruction'   // Standing instructions ("always use TypeScript")
+  | 'relationship'  // Relations to other entities
+
+/** Memory scope determines visibility and retrieval behavior. */
+type ArborMemoryScope = 
+  | 'global'        // Available everywhere
+  | 'project'       // Specific to a project path
+  | 'conversation'  // Specific to a conversation
+
+/** How the memory was created - affects confidence weighting. */
+type ArborMemorySource = 
+  | 'user_stated'   // User explicitly said this
+  | 'ai_inferred'   // AI inferred from conversation
+  | 'agent_stored'  // Agent explicitly stored via tool
+  | 'system'        // System-generated
+
+/** Privacy level controls injection behavior into AI context. */
+type ArborMemoryPrivacyLevel = 
+  | 'always_include' // Always inject into context
+  | 'normal'         // Include when relevant
+  | 'sensitive'      // Only include when directly relevant
+  | 'never_share'    // Never include in AI context
+
+/** Core memory entity stored in the database. */
+interface ArborMemoryRecord {
+  id: string
+  content: string
+  summary?: string
+  type: ArborMemoryType
+  scope: ArborMemoryScope
+  scopeId?: string
+  source: ArborMemorySource
+  confidence: number
+  tags?: string[]
+  relatedMemories?: string[]
+  createdAt: number
+  updatedAt: number
+  accessedAt: number
+  accessCount: number
+  decayRate: number
+  compactedAt?: number
+  expiresAt?: number
+  privacyLevel: ArborMemoryPrivacyLevel
+}
+
+/** Query parameters for memory retrieval. */
+interface ArborMemoryQuery {
+  scope?: ArborMemoryScope
+  scopeId?: string
+  includeGlobal?: boolean
+  types?: ArborMemoryType[]
+  minConfidence?: number
+  privacyLevels?: ArborMemoryPrivacyLevel[]
+  searchText?: string
+  tags?: string[]
+  limit?: number
+  offset?: number
+  sortBy?: 'confidence' | 'accessedAt' | 'createdAt' | 'accessCount'
+  sortOrder?: 'asc' | 'desc'
+}
+
+/** Context returned for conversation injection. */
+interface ArborMemoryContext {
+  formattedPrompt: string
+  memories: ArborMemoryRecord[]
+  stats: {
+    totalLoaded: number
+    byScope: Record<ArborMemoryScope, number>
+    byType: Record<ArborMemoryType, number>
+    avgConfidence: number
+  }
+  status: 'loaded' | 'empty' | 'error'
+  error?: string
+}
+
+/** Options for getting context memories. */
+interface ArborMemoryContextOptions {
+  conversationId?: string
+  projectPath?: string
+  searchText?: string
+  maxTokens?: number
+}
+
+/** Request to store a new memory. */
+interface StoreArborMemoryRequest {
+  content: string
+  type: ArborMemoryType
+  scope?: ArborMemoryScope
+  scopeId?: string
+  source?: ArborMemorySource
+  confidence?: number
+  tags?: string[]
+  privacyLevel?: ArborMemoryPrivacyLevel
+  decayRate?: number
+  expiresAt?: number
+}
+
+/** Result of storing a memory. */
+interface StoreArborMemoryResult {
+  success: boolean
+  memoryId?: string
+  error?: string
+  duplicate?: boolean
+  existingMemoryId?: string
+}
+
+/** Request to update an existing memory. */
+interface UpdateArborMemoryRequest {
+  id: string
+  content?: string
+  type?: ArborMemoryType
+  scope?: ArborMemoryScope
+  scopeId?: string
+  confidence?: number
+  tags?: string[]
+  privacyLevel?: ArborMemoryPrivacyLevel
+  summary?: string
+}
+
+/** Memory candidate for AI-driven compaction/summarization. */
+interface ArborCompactionCandidate {
+  memory: ArborMemoryRecord
+  reason: 'age' | 'low_confidence' | 'low_access' | 'size'
+  suggestedAction: 'summarize' | 'delete' | 'archive'
+}
+
+/** Result of running the decay process. */
+interface ArborDecayResult {
+  updated: number
+  deleted: number
+}
+
+/** Comprehensive memory statistics for UI display and monitoring. */
+interface ArborMemoryStats {
+  totalMemories: number
+  byScope: Record<ArborMemoryScope, number>
+  byType: Record<ArborMemoryType, number>
+  bySource: Record<ArborMemorySource, number>
+  avgConfidence: number
+  oldestMemory: number
+  newestMemory: number
+  totalAccessCount: number
+  compactedCount: number
+}
+
+/** Arbor Memory API - Native persistent memory for AI conversations. */
+interface ArborMemoryAPI {
+  // Context Retrieval (Primary method for conversation start)
+  getContext: (options?: ArborMemoryContextOptions) => Promise<ArborMemoryContext>
+  
+  // Storage
+  store: (request: StoreArborMemoryRequest) => Promise<StoreArborMemoryResult>
+  
+  // Querying
+  query: (query: ArborMemoryQuery) => Promise<ArborMemoryRecord[]>
+  search: (searchText: string, limit?: number) => Promise<ArborMemoryRecord[]>
+  
+  // CRUD Operations
+  get: (id: string) => Promise<ArborMemoryRecord | null>
+  update: (request: UpdateArborMemoryRequest) => Promise<boolean>
+  delete: (id: string) => Promise<boolean>
+  clearAll: () => Promise<{ success: boolean; deleted: number; error?: string }>
+  
+  // Statistics
+  getStats: () => Promise<ArborMemoryStats>
+  
+  // Decay & Compaction
+  getCompactionCandidates: (limit?: number) => Promise<ArborCompactionCandidate[]>
+  applyCompaction: (memoryId: string, summary: string) => Promise<boolean>
+  runDecay: () => Promise<ArborDecayResult>
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tokenizer Types - Accurate token counting for context management
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Statistics about the tokenizer service. */
+interface TokenizerStats {
+  loadedEncodings: string[]
+  initialized: boolean
+}
+
+/** API for accurate token counting using js-tiktoken. */
+interface TokenizerAPI {
+  /** Count tokens in text (async, accurate) */
+  count: (text: string, modelId?: string) => Promise<number>
+  /** Count tokens synchronously (uses cached tokenizer, faster for hot paths) */
+  countSync: (text: string, modelId?: string) => Promise<number>
+  /** Truncate text to fit within a token limit */
+  truncate: (text: string, maxTokens: number, modelId?: string) => Promise<string>
+  /** Get tokenizer service statistics */
+  getStats: () => Promise<TokenizerStats>
 }
 
 // Notification Types
@@ -447,11 +678,42 @@ interface GitDiffInfo {
   totalDeletions: number
 }
 
+// Phase 3: Git verification types
+interface GitVerifyResult {
+  verified: boolean
+  changedFiles: string[]
+  missingChanges: string[]
+  unexpectedChanges: string[]
+  details: Record<string, { status: string; lines?: number }>
+}
+
+interface GitDetailedStatus {
+  staged: Array<{ path: string; additions: number; deletions: number }>
+  modified: Array<{ path: string; additions: number; deletions: number }>
+  untracked: Array<{ path: string }>
+}
+
+interface GitCommitResult {
+  success: boolean
+  commitHash?: string
+  message?: string
+  filesCommitted?: number
+  error?: string
+}
+
 interface GitAPI {
   getRepoInfo: (directory: string) => Promise<GitRepoInfo>
   getUncommittedFiles: (directory: string) => Promise<GitChangedFile[]>
   getChangedFilesSinceBranch: (directory: string, baseBranch: string) => Promise<GitChangedFile[]>
   getDiffStats: (directory: string, baseBranch?: string) => Promise<GitDiffInfo>
+  // Phase 3: Verification methods
+  verifyChanges: (workingDir: string, expectedFiles: string[]) => Promise<GitVerifyResult>
+  getDiffSummary: (workingDir: string) => Promise<string>
+  isRepository: (workingDir: string) => Promise<boolean>
+  getDetailedStatus: (workingDir: string) => Promise<GitDetailedStatus>
+  // Commit operations - for /commit slash command
+  commit: (workingDir: string, message?: string) => Promise<GitCommitResult>
+  getArborChatRoot: () => Promise<string>
 }
 
 interface MCPInitResult {
@@ -546,6 +808,12 @@ declare global {
       onToken: (callback: (token: string) => void) => void
       onDone: (callback: () => void) => void
       onError: (callback: (err: string) => void) => void
+      onFunctionCall: (callback: (data: { 
+        name: string
+        args: Record<string, unknown>
+        toolCallId?: string  // OpenAI function call ID
+        toolUseId?: string   // Anthropic tool_use block ID
+      }) => void) => () => void
       offAI: () => void
       // MCP API
       mcp: MCPAPI
@@ -561,6 +829,10 @@ declare global {
       git: GitAPI
       // Notebooks API
       notebooks: NotebooksAPI
+      // Arbor Memory API
+      arborMemory: ArborMemoryAPI
+      // Tokenizer API
+      tokenizer: TokenizerAPI
     }
   }
 }
@@ -592,6 +864,10 @@ export type {
   GitRepoInfo,
   GitChangedFile,
   GitDiffInfo,
+  // Phase 3: Git verification types
+  GitVerifyResult,
+  GitDetailedStatus,
+  GitCommitResult,
   GitAPI,
   PersonaMetadata,
   Persona,
@@ -617,5 +893,24 @@ export type {
   CreateEntryInput,
   UpdateEntryInput,
   NotebookSearchResult,
-  NotebooksAPI
+  NotebooksAPI,
+  // Arbor Memory types
+  ArborMemoryType,
+  ArborMemoryScope,
+  ArborMemorySource,
+  ArborMemoryPrivacyLevel,
+  ArborMemoryRecord,
+  ArborMemoryQuery,
+  ArborMemoryContext,
+  ArborMemoryContextOptions,
+  StoreArborMemoryRequest,
+  StoreArborMemoryResult,
+  UpdateArborMemoryRequest,
+  ArborCompactionCandidate,
+  ArborDecayResult,
+  ArborMemoryStats,
+  ArborMemoryAPI,
+  // Tokenizer types
+  TokenizerStats,
+  TokenizerAPI
 }

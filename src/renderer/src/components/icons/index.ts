@@ -4,5 +4,7 @@ export {
   MistralIcon,
   GeminiIcon,
   GitHubCopilotIcon,
-  OllamaIcon
+  OllamaIcon,
+  getProviderIcon,
+  ProviderIcon
 } from './ProviderIcons'

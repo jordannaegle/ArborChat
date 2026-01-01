@@ -317,6 +317,7 @@ interface AgentContextType {
   
   // Agent lifecycle
   createAgent: (options: CreateAgentOptions) => Agent
+  createAgentWithAdvancedContext: (options: CreateAgentOptions) => Promise<Agent>
   updateAgentStatus: (agentId: string, status: AgentStatus, error?: string) => void
   removeAgent: (agentId: string) => void
   clearAllAgents: () => void
@@ -371,7 +372,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   // Phase 6.5: Cleanup registry - stores cleanup functions per agent
   const cleanupRegistryRef = useRef<Map<string, CleanupFunction>>(new Map())
 
-  // Create a new agent
+  // Create a new agent (async to support Phase 4 project analysis)
   const createAgent = useCallback((options: CreateAgentOptions): Agent => {
     const id = generateAgentId()
     const now = Date.now()
@@ -397,8 +398,51 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Build system prompt
-    let systemPrompt = `You are an autonomous coding agent within ArborChat. Your task is to complete the user's request step by step.
+    const workingDirectory = options.workingDirectory || ''
+    
+    // Build working directory context for system prompt
+    const workingDirContext = workingDirectory 
+      ? `
 
+## WORKING DIRECTORY
+
+Your working directory is: ${workingDirectory}
+
+IMPORTANT FILE OPERATION RULES:
+- When searching for files, ALWAYS start in ${workingDirectory}
+- When reading files without absolute paths, look in ${workingDirectory}
+- When creating files, create them in ${workingDirectory} unless otherwise specified
+- Always use absolute paths starting with ${workingDirectory} for clarity
+- NEVER search from "/" or use recursive searches on the root filesystem
+
+For example, to read package.json:
+- CORRECT: path: "${workingDirectory}/package.json"
+- WRONG: path: "/" or path: "package.json" or searching from root
+
+When using search tools:
+- CORRECT: start_search with path: "${workingDirectory}"
+- WRONG: start_search with path: "/"
+`
+      : ''
+    
+    console.log('[AgentContext] Creating agent with working directory:', workingDirectory)
+    
+    // Phase 4: Add multi-file orchestration guidance if enabled
+    const orchestrationContext = options.enableMultiFileOrchestration
+      ? `
+
+## MULTI-FILE ORCHESTRATION
+
+You have multi-file orchestration capabilities enabled. When performing complex refactoring:
+1. Plan the execution order carefully - files that are imported should be updated first
+2. Track dependencies between files
+3. Verify each change compiles before moving to dependent files
+4. Consider using checkpoints for large refactoring operations
+`
+      : ''
+    
+    let systemPrompt = `You are an autonomous coding agent within ArborChat. Your task is to complete the user's request step by step.
+${workingDirContext}${orchestrationContext}
 IMPORTANT GUIDELINES:
 1. Work methodically - break complex tasks into smaller steps
 2. Use tools to read files, write code, and execute commands
@@ -411,6 +455,21 @@ You have access to MCP tools for file operations and command execution.`
 
     if (options.personaContent) {
       systemPrompt = `${options.personaContent}\n\n---\n\n${systemPrompt}`
+    }
+
+    // Diagnostic logging for working directory injection
+    console.log('[AgentContext] System prompt length:', systemPrompt.length)
+    console.log('[AgentContext] System prompt includes workingDirectory:', 
+      workingDirectory ? systemPrompt.includes(workingDirectory) : 'N/A (no working dir set)')
+    
+    // Phase 4: Log advanced capability flags
+    if (options.autoAnalyzeProject || options.enableMultiFileOrchestration || options.checkpointToRestore) {
+      console.log('[AgentContext] Phase 4 capabilities:', {
+        autoAnalyzeProject: options.autoAnalyzeProject,
+        enableMultiFileOrchestration: options.enableMultiFileOrchestration,
+        contextTokenBudget: options.contextTokenBudget,
+        checkpointToRestore: options.checkpointToRestore
+      })
     }
 
     const agent: Agent = {
@@ -509,6 +568,107 @@ Please continue from where the previous session left off. Acknowledge the resump
     console.log(`[AgentContext] Created resumed agent ${agent.id} from session ${session.id}`)
 
     return agent
+  }, [createAgent])
+
+  // Phase 4: Create agent with advanced context (project analysis, checkpoint restoration)
+  const createAgentWithAdvancedContext = useCallback(async (
+    options: CreateAgentOptions
+  ): Promise<Agent> => {
+    let enhancedOptions = { ...options }
+    
+    // Phase 4: Auto-analyze project if requested
+    if (options.autoAnalyzeProject && options.workingDirectory) {
+      try {
+        console.log('[AgentContext] Analyzing project structure...')
+        
+        // Import dynamically to avoid circular dependencies
+        const { analyzeProject, readProjectConfigs, buildProjectContextPrompt } = 
+          await import('../lib/projectContext')
+        
+        const projectContext = await analyzeProject(options.workingDirectory)
+        const configs = await readProjectConfigs(options.workingDirectory, projectContext)
+        const projectContextPrompt = buildProjectContextPrompt(projectContext, configs)
+        
+        console.log('[AgentContext] Project context built:', {
+          type: projectContext.type,
+          framework: projectContext.framework,
+          hasTypeScript: projectContext.hasTypeScript,
+          sourceDirectories: projectContext.sourceDirectories.length,
+          configFiles: projectContext.configFiles.length
+        })
+        
+        // Append project context to personaContent or create new
+        if (enhancedOptions.personaContent) {
+          enhancedOptions.personaContent = `${enhancedOptions.personaContent}\n\n${projectContextPrompt}`
+        } else {
+          enhancedOptions.personaContent = projectContextPrompt
+        }
+      } catch (error) {
+        console.warn('[AgentContext] Project analysis failed:', error)
+        // Continue without project context
+      }
+    }
+    
+    // Phase 4: Handle checkpoint restoration
+    if (options.checkpointToRestore) {
+      try {
+        console.log('[AgentContext] Restoring from checkpoint:', options.checkpointToRestore)
+        
+        // Access work journal API directly (can't use hooks in callbacks)
+        const session = await window.api.workJournal.getSession(options.checkpointToRestore)
+        if (session) {
+          const resumptionContext = await window.api.workJournal.generateResumptionContext(
+            options.checkpointToRestore,
+            options.contextTokenBudget || 10000
+          )
+          
+          // Build resumption context string
+          const resumptionPrompt = `
+## Session Resumption Context
+
+You are resuming a previous work session. Here's what was accomplished:
+
+### Original Task
+${resumptionContext.originalPrompt}
+
+### Work Summary
+${resumptionContext.workSummary}
+
+### Key Decisions Made
+${resumptionContext.keyDecisions.map(d => `- ${d}`).join('\n') || '- None recorded'}
+
+### Files Modified
+${resumptionContext.filesModified.map(f => `- ${f}`).join('\n') || '- None yet'}
+
+### Current State
+${resumptionContext.currentState}
+
+### Pending Actions
+${resumptionContext.pendingActions.map(a => `- ${a}`).join('\n') || '- None pending'}
+
+${resumptionContext.errorHistory.length > 0 ? `### Previous Errors to Avoid\n${resumptionContext.errorHistory.slice(-3).map(e => `- ${e}`).join('\n')}` : ''}
+
+---
+Resume from where you left off. Review the above context and continue the task.
+`
+          
+          // Append resumption context
+          if (enhancedOptions.personaContent) {
+            enhancedOptions.personaContent = `${enhancedOptions.personaContent}\n\n${resumptionPrompt}`
+          } else {
+            enhancedOptions.personaContent = resumptionPrompt
+          }
+          
+          console.log('[AgentContext] Checkpoint restoration context applied')
+        }
+      } catch (error) {
+        console.warn('[AgentContext] Checkpoint restoration failed:', error)
+        // Continue without checkpoint context
+      }
+    }
+    
+    // Create the agent with enhanced options
+    return createAgent(enhancedOptions)
   }, [createAgent])
 
   // Update agent status
@@ -704,10 +864,13 @@ Please continue from where the previous session left off. Acknowledge the resump
     unregisterCleanup,
     trimAgentHistory,
     // Phase 5: Session resumption
-    createAgentWithResumption
+    createAgentWithResumption,
+    // Phase 4: Advanced capabilities
+    createAgentWithAdvancedContext
   }), [
     state,
     createAgent,
+    createAgentWithAdvancedContext,
     updateAgentStatus,
     removeAgent,
     clearAllAgents,

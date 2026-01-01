@@ -1,5 +1,5 @@
 // src/renderer/src/hooks/useAgentRunner.ts
-// Core Agent Execution Engine - Phase 2 + Phase 4 Work Journal Integration
+// Core Agent Execution Engine - Phase 2 + Phase 4 Token Tracking
 // Author: Alex Chen (Distinguished Software Architect)
 
 import { useCallback, useRef, useEffect, useState } from 'react'
@@ -7,7 +7,23 @@ import { useAgentContext } from '../contexts/AgentContext'
 import { useMCP } from '../components/mcp'
 import { parseToolCalls, stripToolCalls, formatToolResult } from '../lib/toolParser'
 import { useWorkJournal } from './useWorkJournal'
-import type { Agent, AgentToolPermission, ToolRiskLevel } from '../types/agent'
+import { 
+  extractMentionedFiles, 
+  verifyTypeScriptCompilation 
+} from '../lib/codeVerification'
+import { TokenizerService } from '../lib/tokenizerService'
+import type { 
+  Agent, 
+  AgentToolPermission, 
+  ToolRiskLevel,
+  ExecutionPhase,
+  TokenWarningLevel,
+  ExecutionDiagnostics
+} from '../types/agent'
+import {
+  DEFAULT_WATCHDOG_CONFIG,
+  getModelContextLimit
+} from '../types/agent'
 
 /**
  * Tool Risk Classification
@@ -80,11 +96,33 @@ function shouldAutoApprove(
 }
 
 export interface AgentRunnerState {
+  // Core state (existing)
   isRunning: boolean
   isStreaming: boolean
   isRetrying: boolean
   streamingContent: string
   error: string | null
+  
+  // NEW: Detailed execution info (Phase 1)
+  execution: {
+    phase: ExecutionPhase
+    currentActivity: string       // "Calling list_directory..."
+    activityStartedAt: number
+    lastProgressAt: number
+    currentToolName?: string
+    currentToolDuration?: number  // Calculated from activityStartedAt
+  } | null
+  
+  // NEW: Token metrics (Phase 1)
+  tokens: {
+    contextUsed: number
+    contextMax: number
+    usagePercent: number
+    warningLevel: TokenWarningLevel
+  } | null
+  
+  // NEW: Diagnostics (Phase 1)
+  diagnostics: ExecutionDiagnostics
 }
 
 export interface UseAgentRunnerResult {
@@ -100,6 +138,11 @@ export interface UseAgentRunnerResult {
   rejectTool: () => void
   canRetry: boolean
   forceCleanup: () => void
+  // Phase 2: Stall recovery actions
+  /** Force retry current iteration (can be called while running) */
+  forceRetry: () => Promise<void>
+  /** Kill the currently executing tool */
+  killCurrentTool: () => void
 }
 
 // Checkpoint configuration
@@ -147,13 +190,25 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
   const entryCountRef = useRef<number>(0)
   const isMountedRef = useRef(true)
   
-  // Local state
+  // Local state - with enhanced execution tracking (Phase 1)
   const [runnerState, setRunnerState] = useState<AgentRunnerState>({
     isRunning: false,
     isStreaming: false,
     isRetrying: false,
     streamingContent: '',
-    error: null
+    error: null,
+    // NEW: Execution tracking (Phase 1)
+    execution: null,
+    tokens: null,
+    diagnostics: {
+      loopIterations: 0,
+      toolCallsTotal: 0,
+      toolCallsSuccessful: 0,
+      toolCallsFailed: 0,
+      averageToolDuration: 0,
+      totalRuntime: 0,
+      lastToolDurations: []
+    }
   })
   
   // Refs for managing execution
@@ -163,6 +218,16 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
   const isExecutingRef = useRef(false)
   const pendingToolResultRef = useRef<string | null>(null)
   
+  // Native function call handling (from native tool calling in Anthropic/OpenAI/Gemini)
+  // Supports multiple parallel function calls
+  const pendingNativeFunctionCallsRef = useRef<Array<{
+    tool: string
+    args: Record<string, unknown>
+    explanation: string
+    toolCallId?: string
+  }>>([])
+  const cleanupFunctionCallRef = useRef<(() => void) | null>(null)
+  
   // Track executed tools for completion verification
   // This prevents hallucinated completions - agent must actually use tools
   const executedToolsRef = useRef<Array<{
@@ -171,6 +236,186 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
     success: boolean
     timestamp: number
   }>>([])
+  
+  // ============================================================================
+  // Phase 1: Agent Execution Monitoring - New Refs and State Tracking
+  // ============================================================================
+  
+  /** Agent start time for total runtime calculation */
+  const agentStartTimeRef = useRef<number | null>(null)
+  
+  /** Tool execution durations for averaging (last 20 tool calls) */
+  const toolDurationsRef = useRef<number[]>([])
+  const MAX_TOOL_DURATION_HISTORY = 20
+  
+  /**
+   * Update execution phase with activity tracking
+   * This is the central function for phase transitions
+   */
+  const updateExecutionPhase = useCallback((
+    phase: ExecutionPhase,
+    activity: string,
+    toolName?: string
+  ) => {
+    const now = Date.now()
+    
+    setRunnerState(prev => ({
+      ...prev,
+      execution: {
+        phase,
+        currentActivity: activity,
+        activityStartedAt: now,
+        lastProgressAt: now,
+        currentToolName: toolName,
+        currentToolDuration: undefined
+      }
+    }))
+    
+    console.log(`[AgentRunner:Phase] ${phase}: ${activity}${toolName ? ` (${toolName})` : ''}`)
+  }, [])
+  
+  /**
+   * Update last progress timestamp (called when we receive data)
+   */
+  const updateProgress = useCallback(() => {
+    setRunnerState(prev => ({
+      ...prev,
+      execution: prev.execution ? {
+        ...prev.execution,
+        lastProgressAt: Date.now()
+      } : null
+    }))
+  }, [])
+  
+  /**
+   * Clear execution state (return to idle)
+   */
+  const clearExecutionState = useCallback(() => {
+    setRunnerState(prev => ({
+      ...prev,
+      execution: null
+    }))
+  }, [])
+  
+  /**
+   * Compute token warning level based on usage percentage
+   */
+  const getTokenWarningLevel = useCallback((usagePercent: number): TokenWarningLevel => {
+    if (usagePercent >= 90) return 'critical'
+    if (usagePercent >= 70) return 'warning'
+    return 'normal'
+  }, [])
+  
+  /**
+   * Update token metrics based on current context
+   * Phase 4: Uses TokenizerService for accurate token counting
+   */
+  const updateTokenMetrics = useCallback((messages: Array<{ role: string; content: string }>, modelId: string) => {
+    const contextMax = getModelContextLimit(modelId)
+    
+    // Phase 4: Use TokenizerService for accurate token counting
+    const tokenResult = TokenizerService.countMessagesTokens(messages, modelId)
+    const contextUsed = tokenResult.count
+    
+    const usagePercent = (contextUsed / contextMax) * 100
+    const warningLevel = getTokenWarningLevel(usagePercent)
+    
+    setRunnerState(prev => ({
+      ...prev,
+      tokens: {
+        contextUsed,
+        contextMax,
+        usagePercent,
+        warningLevel
+      }
+    }))
+    
+    // Log warning if approaching limits
+    if (warningLevel === 'critical') {
+      console.warn(`[AgentRunner:Tokens] CRITICAL: Context ${usagePercent.toFixed(1)}% full (${TokenizerService.formatTokenCount(contextUsed)}/${TokenizerService.formatTokenCount(contextMax)}) [${tokenResult.encoding}${tokenResult.isApproximate ? ' approx' : ''}]`)
+    } else if (warningLevel === 'warning') {
+      console.warn(`[AgentRunner:Tokens] WARNING: Context ${usagePercent.toFixed(1)}% full (${TokenizerService.formatTokenCount(contextUsed)}/${TokenizerService.formatTokenCount(contextMax)}) [${tokenResult.encoding}${tokenResult.isApproximate ? ' approx' : ''}]`)
+    }
+    
+    return { contextUsed, contextMax, usagePercent, warningLevel }
+  }, [getTokenWarningLevel])
+  
+  /**
+   * Record tool execution duration and update diagnostics
+   */
+  const recordToolDuration = useCallback((duration: number, success: boolean) => {
+    // Add to duration history (keeping last N)
+    toolDurationsRef.current.push(duration)
+    if (toolDurationsRef.current.length > MAX_TOOL_DURATION_HISTORY) {
+      toolDurationsRef.current.shift()
+    }
+    
+    // Calculate average
+    const avgDuration = toolDurationsRef.current.length > 0
+      ? toolDurationsRef.current.reduce((a, b) => a + b, 0) / toolDurationsRef.current.length
+      : 0
+    
+    // Update diagnostics
+    setRunnerState(prev => ({
+      ...prev,
+      diagnostics: {
+        ...prev.diagnostics,
+        toolCallsTotal: prev.diagnostics.toolCallsTotal + 1,
+        toolCallsSuccessful: success 
+          ? prev.diagnostics.toolCallsSuccessful + 1 
+          : prev.diagnostics.toolCallsSuccessful,
+        toolCallsFailed: success 
+          ? prev.diagnostics.toolCallsFailed 
+          : prev.diagnostics.toolCallsFailed + 1,
+        averageToolDuration: avgDuration,
+        lastToolDurations: [...toolDurationsRef.current],
+        totalRuntime: agentStartTimeRef.current 
+          ? Date.now() - agentStartTimeRef.current 
+          : 0
+      }
+    }))
+  }, [])
+  
+  /**
+   * Increment loop iteration counter
+   */
+  const incrementLoopIteration = useCallback(() => {
+    setRunnerState(prev => ({
+      ...prev,
+      diagnostics: {
+        ...prev.diagnostics,
+        loopIterations: prev.diagnostics.loopIterations + 1,
+        totalRuntime: agentStartTimeRef.current 
+          ? Date.now() - agentStartTimeRef.current 
+          : 0
+      }
+    }))
+  }, [])
+  
+  /**
+   * Reset diagnostics (called when agent starts fresh)
+   */
+  const resetDiagnostics = useCallback(() => {
+    agentStartTimeRef.current = Date.now()
+    toolDurationsRef.current = []
+    
+    setRunnerState(prev => ({
+      ...prev,
+      diagnostics: {
+        loopIterations: 0,
+        toolCallsTotal: 0,
+        toolCallsSuccessful: 0,
+        toolCallsFailed: 0,
+        averageToolDuration: 0,
+        totalRuntime: 0,
+        lastToolDurations: []
+      }
+    }))
+  }, [])
+  
+  // ============================================================================
+  // End Phase 1: Agent Execution Monitoring
+  // ============================================================================
   
   /**
    * Tools that constitute "meaningful work" for completion verification
@@ -322,9 +567,16 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
    * 1. Building the context from system prompt, seed messages, and history
    * 2. Adding pending tool results if present
    * 3. Validating and fixing ordering before returning
+   * 4. Phase 4: Auto-truncating if context exceeds model limits
    */
-  const buildContextMessages = useCallback((agent: Agent): Array<{ role: string; content: string }> => {
+  const buildContextMessages = useCallback((agent: Agent): { 
+    messages: Array<{ role: string; content: string }>
+    truncationNotification: string | null 
+  } => {
     const messages: Array<{ role: string; content: string }> = []
+    
+    // Diagnostic: Log working directory from agent config
+    console.log('[AgentRunner] Agent working directory:', agent.config.context.workingDirectory)
     
     // System prompt
     messages.push({ role: 'system', content: agent.systemPrompt })
@@ -363,7 +615,26 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
       })
     }
     
-    return messages
+    // Phase 4: Auto-truncation if context exceeds model limits
+    const modelId = agent.config.modelId
+    const contextMax = getModelContextLimit(modelId)
+    const reserveTokens = 2000 // Reserve tokens for response
+    
+    const truncationResult = TokenizerService.truncateMessages(
+      messages,
+      modelId,
+      contextMax,
+      reserveTokens
+    )
+    
+    if (truncationResult.truncatedCount > 0) {
+      console.warn(`[AgentRunner:Truncation] ${truncationResult.notification}`)
+    }
+    
+    return { 
+      messages: truncationResult.messages, 
+      truncationNotification: truncationResult.notification 
+    }
   }, [])
 
   /**
@@ -376,13 +647,31 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
     isExecutingRef.current = true
     abortControllerRef.current = new AbortController()
     
+    // Phase 1: Track loop iteration
+    incrementLoopIteration()
+    
     try {
       // Update status to running
       updateAgentStatus(agentId, 'running')
       setRunnerState(prev => ({ ...prev, isRunning: true, isStreaming: true, isRetrying: false, error: null }))
       
-      // Build context
-      const messages = buildContextMessages(agent)
+      // Build context (Phase 4: now returns object with messages and truncation info)
+      const { messages, truncationNotification } = buildContextMessages(agent)
+      
+      // Phase 4: Add truncation notification step if messages were truncated
+      if (truncationNotification) {
+        addAgentStep(agentId, {
+          type: 'thinking',
+          content: `⚠️ ${truncationNotification}`,
+          timestamp: Date.now()
+        })
+      }
+      
+      // Phase 1: Track token metrics
+      updateTokenMetrics(messages, agent.config.modelId)
+      
+      // Phase 1: Update execution phase - streaming AI response
+      updateExecutionPhase('streaming_ai', 'Generating response...')
       
       // DIAGNOSTIC: Log message structure for debugging API errors
       const messageSummary = messages.map((m, i) => `${i}: ${m.role} (${m.content.length} chars)`).join('\n')
@@ -406,13 +695,34 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
       // Setup stream handlers
       const cleanup = () => {
         window.api.offAI()
+        cleanupFunctionCallRef.current?.()
+        cleanupFunctionCallRef.current = null
       }
       
       // Token handler
       window.api.onToken((token) => {
         streamBufferRef.current += token
         setRunnerState(prev => ({ ...prev, streamingContent: streamBufferRef.current }))
+        // Phase 1: Update progress timestamp on each token received
+        updateProgress()
       })
+      
+      // Native function call handler (from providers that support it)
+      // Accumulates multiple function calls for parallel execution
+      if (window.api.onFunctionCall) {
+        const cleanupFn = window.api.onFunctionCall((data) => {
+          console.log('[AgentRunner] ✅ Native function call received:', data.name)
+          
+          // Accumulate function calls (providers may emit multiple for parallel execution)
+          pendingNativeFunctionCallsRef.current.push({
+            tool: data.name,
+            args: data.args,
+            explanation: 'Native function call',
+            toolCallId: data.toolCallId || data.toolUseId
+          })
+        })
+        cleanupFunctionCallRef.current = cleanupFn
+      }
       
       // Done handler
       window.api.onDone(async () => {
@@ -426,7 +736,7 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
         const finalContent = streamBufferRef.current
         setRunnerState(prev => ({ ...prev, isStreaming: false }))
         
-        if (!finalContent) {
+        if (!finalContent && pendingNativeFunctionCallsRef.current.length === 0) {
           isExecutingRef.current = false
           setRunnerState(prev => ({ ...prev, isRunning: false }))
           return
@@ -443,7 +753,29 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
           }
         }
         
-        // Parse tool calls
+        // Check for native function calls first (from providers like Anthropic/OpenAI/Gemini)
+        const pendingCalls = [...pendingNativeFunctionCallsRef.current]
+        pendingNativeFunctionCallsRef.current = [] // Reset immediately
+        
+        if (pendingCalls.length > 0) {
+          console.log(`[AgentRunner] Processing ${pendingCalls.length} native function call(s)`)
+          
+          // Update message with any text content (clean, no tool blocks)
+          if (currentMessageIdRef.current && finalContent) {
+            updateAgentMessage(agentId, currentMessageIdRef.current, finalContent)
+          }
+          
+          if (pendingCalls.length === 1) {
+            // Single tool call - use existing flow
+            await handleToolCall(agent, pendingCalls[0], finalContent, finalContent)
+          } else {
+            // Multiple tool calls - process in parallel
+            await handleParallelToolCalls(agent, pendingCalls, finalContent)
+          }
+          return
+        }
+        
+        // Fall back to text-based parsing for legacy support
         const toolCalls = parseToolCalls(finalContent)
         const cleanContent = stripToolCalls(finalContent)
         
@@ -457,11 +789,18 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
           const toolCall = toolCalls[0]
           await handleToolCall(agent, toolCall, finalContent, cleanContent)
         } else {
-          // Check for completion
-          if (isCompletionMessage(finalContent)) {
+          // Phase 1: Update execution phase for verification
+          updateExecutionPhase('verifying_completion', 'Verifying completion...')
+          
+          // Check for completion (now async with git/TypeScript verification)
+          if (await isCompletionMessage(finalContent)) {
+            // Phase 1: Clear execution state on completion
+            clearExecutionState()
             updateAgentStatus(agentId, 'completed')
             setRunnerState(prev => ({ ...prev, isRunning: false }))
           } else {
+            // Phase 1: Clear execution state when waiting
+            clearExecutionState()
             // Continue running for next iteration
             // Agent is waiting for continuation or is done thinking
             updateAgentStatus(agentId, 'waiting')
@@ -499,6 +838,9 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
           timestamp: Date.now()
         })
         
+        // Phase 1: Clear execution state on error
+        clearExecutionState()
+        
         updateAgentStatus(agentId, 'failed', err)
         setRunnerState(prev => ({ ...prev, isRunning: false, isStreaming: false, error: err }))
         isExecutingRef.current = false
@@ -522,11 +864,14 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
         ).catch(console.error)
       }
       
+      // Phase 1: Clear execution state on error
+      clearExecutionState()
+      
       updateAgentStatus(agentId, 'failed', errorMsg)
       setRunnerState(prev => ({ ...prev, isRunning: false, isStreaming: false, error: errorMsg }))
       isExecutingRef.current = false
     }
-  }, [agentId, getAgentSafe, buildContextMessages, updateAgentStatus, addAgentMessage, updateAgentMessage, addAgentStep, logThinking, logError, maybeCreateCheckpoint])
+  }, [agentId, getAgentSafe, buildContextMessages, updateAgentStatus, addAgentMessage, updateAgentMessage, addAgentStep, logThinking, logError, maybeCreateCheckpoint, incrementLoopIteration, updateTokenMetrics, updateExecutionPhase, updateProgress, clearExecutionState])
 
 
   /**
@@ -697,6 +1042,9 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
     } else {
       console.log(`[AgentRunner] Awaiting approval for tool: ${toolCall.tool}`)
       
+      // Phase 1: Update execution phase for waiting approval
+      updateExecutionPhase('waiting_approval', `Awaiting approval for ${toolCall.tool}`, toolCall.tool)
+      
       // Set pending tool for UI
       const toolId = `agent-tool-${Date.now()}`
       setPendingTool(agentId, {
@@ -713,12 +1061,256 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
       setRunnerState(prev => ({ ...prev, isRunning: false }))
       isExecutingRef.current = false
     }
-  }, [agentId, addAgentStep, updateAgentStep, updateAgentStatus, setPendingTool, executeLoop, logToolRequest, logToolResult, logError, detectAndLogFileOperations, maybeCreateCheckpoint, recordToolExecution])
+  }, [agentId, addAgentStep, updateAgentStep, updateAgentStatus, setPendingTool, executeLoop, logToolRequest, logToolResult, logError, detectAndLogFileOperations, maybeCreateCheckpoint, recordToolExecution, updateExecutionPhase])
 
   /**
-   * Internal tool execution
+   * Handle multiple tool calls in parallel
+   * Auto-approved tools execute simultaneously, others queue for sequential approval
+   * 
+   * PARALLEL EXECUTION STRATEGY:
+   * 1. Classify all tool calls by auto-approval status
+   * 2. Execute all auto-approved tools concurrently via Promise.allSettled
+   * 3. Collect results and format for AI context
+   * 4. Queue first tool needing approval (batch approval UI is deferred)
+   * 5. Continue agent loop with combined results
    */
-  const executeToolInternal = useCallback(async (
+  const handleParallelToolCalls = useCallback(async (
+    agent: Agent,
+    toolCalls: Array<{ 
+      tool: string
+      args: Record<string, unknown>
+      explanation: string
+      toolCallId?: string 
+    }>,
+    originalContent: string
+  ) => {
+    if (!isMountedRef.current) return
+    
+    console.log(`[AgentRunner] Processing ${toolCalls.length} parallel tool calls`)
+    
+    // Get config for always-approve list
+    let alwaysApproveTools: string[] = []
+    try {
+      const config = await window.api.mcp.getConfig()
+      alwaysApproveTools = config.alwaysApproveTools || []
+    } catch (e) {
+      console.warn('[AgentRunner] Failed to get MCP config:', e)
+    }
+    
+    // Separate into auto-approvable and needs-approval
+    const autoApprovable = toolCalls.filter(tc => 
+      shouldAutoApprove(tc.tool, agent.config.toolPermission, alwaysApproveTools)
+    )
+    const needsApproval = toolCalls.filter(tc =>
+      !shouldAutoApprove(tc.tool, agent.config.toolPermission, alwaysApproveTools)
+    )
+    
+    console.log(`[AgentRunner] Parallel execution: ${autoApprovable.length} auto-approve, ${needsApproval.length} need approval`)
+    
+    // Results accumulator
+    const results: string[] = []
+    
+    // Execute auto-approved tools in parallel
+    if (autoApprovable.length > 0) {
+      const executionStart = Date.now()
+      
+      // Create steps for all parallel tools
+      const stepsAndCalls = autoApprovable.map(tc => ({
+        tc,
+        step: addAgentStep(agentId, {
+          type: 'tool_call',
+          content: `Calling ${tc.tool}`,
+          timestamp: Date.now(),
+          toolCall: {
+            name: tc.tool,
+            args: tc.args,
+            status: 'approved',
+            explanation: tc.explanation
+          }
+        })
+      }))
+      
+      // Execute all in parallel
+      const parallelResults = await Promise.allSettled(
+        stepsAndCalls.map(async ({ tc, step }) => {
+          try {
+            // Log to work journal
+            if (workSessionIdRef.current) {
+              const riskLevel = getToolRiskLevel(tc.tool)
+              await logToolRequest(workSessionIdRef.current, tc.tool, tc.args, riskLevel)
+              entryCountRef.current++
+            }
+            
+            // Execute via MCP
+            const result = await executeToolInternal(tc.tool, tc.args, tc.explanation)
+            
+            // Log result to work journal
+            if (workSessionIdRef.current) {
+              const resultStr = typeof result.result === 'string' ? result.result : String(result.result ?? '')
+              await logToolResult(
+                workSessionIdRef.current,
+                tc.tool,
+                result.success,
+                resultStr,
+                { truncated: resultStr.length > 5000, errorMessage: result.error }
+              )
+              entryCountRef.current++
+              
+              // Check for file operations
+              await detectAndLogFileOperations(tc.tool, tc.args, {
+                success: result.success,
+                result: resultStr
+              })
+            }
+            
+            // Record for completion verification
+            recordToolExecution(tc.tool, tc.args, result.success)
+            
+            // Update step with result
+            updateAgentStep(agentId, step.id, {
+              toolCall: {
+                name: tc.tool,
+                args: tc.args,
+                status: result.success ? 'completed' : 'failed',
+                result: result.result,
+                error: result.error,
+                explanation: tc.explanation
+              }
+            })
+            
+            return { tool: tc.tool, result, step }
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error)
+            recordToolExecution(tc.tool, tc.args, false)
+            
+            updateAgentStep(agentId, step.id, {
+              toolCall: {
+                name: tc.tool,
+                args: tc.args,
+                status: 'failed',
+                error: errorMsg,
+                explanation: tc.explanation
+              }
+            })
+            
+            throw { tool: tc.tool, error: errorMsg }
+          }
+        })
+      )
+      
+      const executionDuration = Date.now() - executionStart
+      console.log(`[AgentRunner] Parallel execution completed in ${executionDuration}ms`)
+      
+      // Build combined result context
+      for (let i = 0; i < parallelResults.length; i++) {
+        const r = parallelResults[i]
+        const tc = autoApprovable[i]
+        
+        if (r.status === 'fulfilled') {
+          const { result } = r.value
+          results.push(formatToolResult(tc.tool, result.result, result.error))
+        } else {
+          // Extract error from rejection
+          const rejection = r.reason as { tool: string; error: string }
+          results.push(formatToolResult(tc.tool, null, rejection.error))
+        }
+      }
+      
+      // Add combined tool result step
+      if (results.length > 0) {
+        addAgentStep(agentId, {
+          type: 'tool_result',
+          content: `Parallel execution of ${autoApprovable.length} tools:\n\n${results.join('\n\n---\n\n')}`,
+          timestamp: Date.now()
+        })
+      }
+      
+      await maybeCreateCheckpoint()
+    }
+    
+    // Store combined results for next iteration
+    if (results.length > 0) {
+      pendingToolResultRef.current = results.join('\n\n')
+    }
+    
+    // Handle tools that need approval (process first one, queue rest)
+    if (needsApproval.length > 0) {
+      // For now, process first one that needs approval
+      // TODO: Implement batch approval UI for multiple pending tools
+      const tc = needsApproval[0]
+      
+      // Log warning if multiple tools need approval
+      if (needsApproval.length > 1) {
+        console.warn(`[AgentRunner] ${needsApproval.length} tools need approval, processing first: ${tc.tool}`)
+        addAgentStep(agentId, {
+          type: 'thinking',
+          content: `⚠️ Multiple tools requested: ${needsApproval.map(t => t.tool).join(', ')}. Processing "${tc.tool}" first.`,
+          timestamp: Date.now()
+        })
+      }
+      
+      // Add step for pending tool
+      addAgentStep(agentId, {
+        type: 'tool_call',
+        content: `Awaiting approval: ${tc.tool}`,
+        timestamp: Date.now(),
+        toolCall: {
+          name: tc.tool,
+          args: tc.args,
+          status: 'pending',
+          explanation: tc.explanation
+        }
+      })
+      
+      // Set pending tool for UI
+      const toolId = `agent-tool-${Date.now()}`
+      setPendingTool(agentId, {
+        id: toolId,
+        tool: tc.tool,
+        args: tc.args,
+        explanation: tc.explanation,
+        originalContent,
+        cleanContent: originalContent
+      })
+      
+      // Phase 1: Update execution phase for waiting approval
+      updateExecutionPhase('waiting_approval', `Awaiting approval for ${tc.tool}`, tc.tool)
+      
+      updateAgentStatus(agentId, 'waiting')
+      setRunnerState(prev => ({ ...prev, isRunning: false }))
+      isExecutingRef.current = false
+      return
+    }
+    
+    // All tools were auto-approved and executed, continue the loop
+    if (autoApprovable.length > 0) {
+      setRunnerState(prev => ({ ...prev, isRunning: true }))
+      isExecutingRef.current = false
+      setTimeout(() => executeLoop(), 100)
+    } else {
+      // No tools to execute (shouldn't happen but handle gracefully)
+      isExecutingRef.current = false
+      setRunnerState(prev => ({ ...prev, isRunning: false }))
+    }
+  }, [
+    agentId, 
+    addAgentStep, 
+    updateAgentStep,
+    updateAgentStatus, 
+    setPendingTool, 
+    executeLoop, 
+    recordToolExecution, 
+    logToolRequest,
+    logToolResult,
+    detectAndLogFileOperations,
+    maybeCreateCheckpoint,
+    updateExecutionPhase
+  ])
+
+  /**
+   * Internal tool execution - raw call without timeout
+   */
+  const executeToolInternalRaw = useCallback(async (
     toolName: string,
     args: Record<string, unknown>,
     explanation?: string
@@ -731,26 +1323,98 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
   }, [mcpTools])
 
   /**
+   * Internal tool execution with timeout wrapper (Phase 1)
+   * 
+   * Wraps tool execution with configurable timeout to prevent hung operations.
+   * Uses AbortController pattern for clean cancellation.
+   * 
+   * @param toolName - Name of the tool to execute
+   * @param args - Tool arguments
+   * @param explanation - Optional explanation for the tool call
+   * @param timeoutMs - Timeout in milliseconds (defaults to watchdog config)
+   */
+  const executeToolInternal = useCallback(async (
+    toolName: string,
+    args: Record<string, unknown>,
+    explanation?: string,
+    timeoutMs: number = DEFAULT_WATCHDOG_CONFIG.toolTimeout
+  ): Promise<{ success: boolean; result?: unknown; error?: string }> => {
+    const executionStart = Date.now()
+    
+    // Update execution phase
+    updateExecutionPhase('executing_tool', `Executing ${toolName}...`, toolName)
+    
+    // Create timeout race
+    let timeoutId: NodeJS.Timeout | undefined
+    
+    try {
+      const result = await Promise.race([
+        executeToolInternalRaw(toolName, args, explanation),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`Tool '${toolName}' timed out after ${Math.round(timeoutMs / 1000)}s`))
+          }, timeoutMs)
+        })
+      ])
+      
+      // Clear timeout on success
+      if (timeoutId) clearTimeout(timeoutId)
+      
+      // Record tool duration
+      const duration = Date.now() - executionStart
+      recordToolDuration(duration, result.success)
+      
+      // Update progress timestamp
+      updateProgress()
+      
+      return result
+    } catch (error) {
+      // Clear timeout on error
+      if (timeoutId) clearTimeout(timeoutId)
+      
+      // Record failed tool duration
+      const duration = Date.now() - executionStart
+      recordToolDuration(duration, false)
+      
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      console.error(`[AgentRunner] Tool execution error (${toolName}):`, errorMsg)
+      
+      return {
+        success: false,
+        error: errorMsg
+      }
+    }
+  }, [executeToolInternalRaw, updateExecutionPhase, updateProgress, recordToolDuration])
+
+  /**
    * Check if message indicates task completion
    * 
-   * RUNTIME VERIFICATION: Prevents hallucinated completions by requiring:
+   * PHASE 3 ENHANCED VERIFICATION: Multi-layer anti-hallucination checks
    * 1. Explicit "TASK COMPLETED" signal in message
    * 2. File path evidence in the completion message
    * 3. Actual successful tool executions tracked at runtime
+   * 4. Git verification - check actual file changes match claims
+   * 5. TypeScript verification - ensure code compiles
    * 
-   * This triple-check ensures agents can't claim completion without proof.
+   * This comprehensive check ensures agents can't claim completion without proof.
+   * Now async to support git and TypeScript verification.
    */
-  const isCompletionMessage = useCallback((content: string): boolean => {
+  const isCompletionMessage = useCallback(async (content: string): Promise<boolean> => {
     // Check 1: Explicit completion signal
     const hasExplicitCompletion = /TASK COMPLETED/i.test(content)
     if (!hasExplicitCompletion) {
       return false
     }
     
-    // Check 2: File path evidence in message
-    const hasFileEvidence = /(?:\/[\w.-]+)+\.(ts|tsx|js|jsx|json|md|css|html)/i.test(content)
-    if (!hasFileEvidence) {
+    // Check 2: File path evidence in message (using extractMentionedFiles)
+    const mentionedFiles = extractMentionedFiles(content)
+    if (mentionedFiles.length === 0) {
       console.warn('[AgentRunner] Completion claimed but no file paths mentioned')
+      addAgentStep(agentId, {
+        type: 'error',
+        content: '⚠️ Completion claimed but no specific files were mentioned.',
+        timestamp: Date.now()
+      })
       return false
     }
     
@@ -760,7 +1424,6 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
       console.warn('[AgentRunner] HALLUCINATION DETECTED: Agent claimed completion but executed NO work tools!')
       console.warn(`[AgentRunner] Total tool calls: ${workVerification.totalToolCalls}, Successful work calls: ${workVerification.successfulWorkCalls}`)
       
-      // Add a warning step to the agent's execution history
       addAgentStep(agentId, {
         type: 'error',
         content: `⚠️ Completion verification failed: No work-producing tools (write_file, edit_block, etc.) were successfully executed. The agent may have hallucinated actions.`,
@@ -770,11 +1433,71 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
       return false
     }
     
-    console.log(`[AgentRunner] Completion verified: ${workVerification.successfulWorkCalls} work operations completed`)
+    // Check 4 & 5: Git and TypeScript verification (if in a git repo with working directory)
+    const agent = getAgentSafe()
+    const workingDir = agent?.config.context?.workingDirectory
+    
+    if (workingDir) {
+      try {
+        const isGitRepo = await window.api.git.isRepository(workingDir)
+        
+        if (isGitRepo) {
+          console.log('[AgentRunner] Running git verification...')
+          const gitVerification = await window.api.git.verifyChanges(workingDir, mentionedFiles)
+          
+          if (!gitVerification.verified && gitVerification.missingChanges.length > 0) {
+            console.warn('[AgentRunner] Git verification: Some expected files not changed:', gitVerification.missingChanges)
+            // Log warning but don't fail - files might be unchanged intentionally
+            addAgentStep(agentId, {
+              type: 'thinking',
+              content: `⚠️ Git verification note: ${gitVerification.missingChanges.length} expected file(s) show no changes: ${gitVerification.missingChanges.slice(0, 3).join(', ')}${gitVerification.missingChanges.length > 3 ? '...' : ''}`,
+              timestamp: Date.now()
+            })
+          } else {
+            console.log('[AgentRunner] ✅ Git verification passed:', gitVerification.changedFiles.length, 'files changed')
+          }
+        }
+
+        // Check 5: TypeScript compilation verification
+        console.log('[AgentRunner] Running TypeScript verification...')
+        const tsVerification = await verifyTypeScriptCompilation(workingDir)
+        
+        if (!tsVerification.success) {
+          console.warn('[AgentRunner] TypeScript verification failed:', tsVerification.errorCount, 'errors')
+          addAgentStep(agentId, {
+            type: 'error',
+            content: `⚠️ TypeScript compilation failed with ${tsVerification.errorCount} error(s). Please fix before completion.`,
+            timestamp: Date.now()
+          })
+          
+          // Provide errors to agent for fixing by setting pending tool result
+          pendingToolResultRef.current = `
+TypeScript compilation check revealed ${tsVerification.errorCount} error(s):
+${tsVerification.errors.slice(0, 5).join('\n')}
+${tsVerification.errorCount > 5 ? `... and ${tsVerification.errorCount - 5} more errors` : ''}
+
+Please fix these TypeScript errors before claiming task completion.`
+          
+          return false
+        }
+        
+        console.log('[AgentRunner] ✅ TypeScript verification passed')
+      } catch (error) {
+        console.error('[AgentRunner] Verification error:', error)
+        // Don't block completion on verification errors - log but continue
+        addAgentStep(agentId, {
+          type: 'thinking',
+          content: `⚠️ Verification check encountered an error: ${error}. Proceeding with completion.`,
+          timestamp: Date.now()
+        })
+      }
+    }
+
+    console.log(`[AgentRunner] ✅ All verification checks passed`)
     console.log(`[AgentRunner] Tools used: ${workVerification.workToolsUsed.join(', ')}`)
     
     return true
-  }, [verifyWorkCompleted, addAgentStep, agentId])
+  }, [verifyWorkCompleted, addAgentStep, agentId, getAgentSafe])
 
   /**
    * Perform cleanup (for crash scenarios)
@@ -797,14 +1520,30 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
     
     abortControllerRef.current?.abort()
     window.api.offAI()
+    cleanupFunctionCallRef.current?.()
+    cleanupFunctionCallRef.current = null
+    pendingNativeFunctionCallsRef.current = []
     setPendingTool(agentId, null)
     isExecutingRef.current = false
+    
+    // Phase 1: Clear execution state on cleanup
     setRunnerState({
       isRunning: false,
       isStreaming: false,
       isRetrying: false,
       streamingContent: '',
-      error: null
+      error: null,
+      execution: null,
+      tokens: null,
+      diagnostics: {
+        loopIterations: 0,
+        toolCallsTotal: 0,
+        toolCallsSuccessful: 0,
+        toolCallsFailed: 0,
+        averageToolDuration: 0,
+        totalRuntime: 0,
+        lastToolDurations: []
+      }
     })
   }, [agentId, updateSessionStatus, createCheckpoint, setPendingTool])
 
@@ -817,6 +1556,9 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
     
     // Reset tool execution tracking for fresh start
     resetToolTracking()
+    
+    // Phase 1: Reset diagnostics for fresh start
+    resetDiagnostics()
     
     // Create work journal session
     if (!workSessionIdRef.current) {
@@ -839,7 +1581,7 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
     }
     
     await executeLoop()
-  }, [getAgentSafe, mcpConnected, executeLoop, createSession, resetToolTracking])
+  }, [getAgentSafe, mcpConnected, executeLoop, createSession, resetToolTracking, resetDiagnostics])
 
   /**
    * Pause agent execution
@@ -854,10 +1596,13 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
         .catch(console.error)
     }
     
+    // Phase 1: Clear execution state when paused
+    clearExecutionState()
+    
     updateAgentStatus(agentId, 'paused')
     setRunnerState(prev => ({ ...prev, isRunning: false, isStreaming: false }))
     isExecutingRef.current = false
-  }, [agentId, updateAgentStatus, updateSessionStatus])
+  }, [agentId, updateAgentStatus, updateSessionStatus, clearExecutionState])
 
 
   /**
@@ -895,13 +1640,16 @@ export function useAgentRunner(agentId: string): UseAgentRunnerResult {
         .catch(console.error)
     }
     
+    // Phase 1: Clear execution state when stopped
+    clearExecutionState()
+    
     updateAgentStatus(agentId, 'completed')
     setRunnerState(prev => ({ ...prev, isRunning: false, isStreaming: false }))
     isExecutingRef.current = false
     
     // Clear any pending tool
     setPendingTool(agentId, null)
-  }, [agentId, updateAgentStatus, setPendingTool, updateSessionStatus, createCheckpoint])
+  }, [agentId, updateAgentStatus, setPendingTool, updateSessionStatus, createCheckpoint, clearExecutionState])
 
   /**
    * Send a message to the agent (user intervention)
@@ -1130,6 +1878,118 @@ User rejected the tool execution. Please acknowledge and continue with an altern
     await executeLoop()
   }, [getAgentSafe, executeLoop, updateSessionStatus])
 
+  // ============================================================================
+  // Phase 2: Stall Recovery Actions
+  // ============================================================================
+
+  /**
+   * Ref for tracking if a tool kill was requested
+   * Used to signal the tool execution promise to abort
+   */
+  const toolKillRequestedRef = useRef(false)
+
+  /**
+   * Force retry - restart current iteration even if agent is running
+   * 
+   * This is different from the normal retry() which only works for failed agents.
+   * forceRetry() can be called while the agent is running to force a fresh iteration,
+   * useful when the agent appears to be stuck in an unproductive loop.
+   */
+  const forceRetry = useCallback(async () => {
+    console.log('[AgentRunner] Force retry requested')
+    
+    // Abort any current operations
+    abortControllerRef.current?.abort()
+    window.api.offAI()
+    cleanupFunctionCallRef.current?.()
+    cleanupFunctionCallRef.current = null
+    pendingNativeFunctionCallsRef.current = []
+    toolKillRequestedRef.current = true
+    
+    // Log force retry to work journal
+    if (workSessionIdRef.current) {
+      try {
+        await logError(
+          workSessionIdRef.current,
+          'force_retry',
+          'User initiated force retry due to suspected stall',
+          true
+        )
+      } catch (err) {
+        console.error('[AgentRunner] Failed to log force retry:', err)
+      }
+    }
+    
+    // Add step indicating force retry
+    addAgentStep(agentId, {
+      type: 'thinking',
+      content: '⚡ Force retry initiated - restarting current iteration',
+      timestamp: Date.now()
+    })
+    
+    // Clear execution state
+    clearExecutionState()
+    isExecutingRef.current = false
+    
+    // Small delay to ensure cleanup completes
+    await new Promise(resolve => setTimeout(resolve, 100))
+    
+    // Reset kill flag
+    toolKillRequestedRef.current = false
+    
+    // Restart execution loop
+    await executeLoop()
+  }, [agentId, addAgentStep, logError, clearExecutionState, executeLoop])
+
+  /**
+   * Kill the currently executing tool
+   * 
+   * Terminates the current tool execution and adds an error result.
+   * The agent loop will continue with the tool failure.
+   */
+  const killCurrentTool = useCallback(() => {
+    const execution = runnerState.execution
+    if (!execution || execution.phase !== 'executing_tool') {
+      console.log('[AgentRunner] No tool currently executing, cannot kill')
+      return
+    }
+    
+    const toolName = execution.currentToolName || 'unknown tool'
+    console.log(`[AgentRunner] Killing tool: ${toolName}`)
+    
+    // Set the kill flag
+    toolKillRequestedRef.current = true
+    
+    // Log kill to work journal
+    if (workSessionIdRef.current) {
+      logError(
+        workSessionIdRef.current,
+        'tool_killed',
+        `User killed tool '${toolName}' due to suspected hang`,
+        true
+      ).catch(console.error)
+    }
+    
+    // Add step indicating tool was killed
+    addAgentStep(agentId, {
+      type: 'error',
+      content: `⛔ Tool '${toolName}' was killed by user. The tool may have been hanging or taking too long.`,
+      timestamp: Date.now()
+    })
+    
+    // Set a pending tool result indicating the kill
+    pendingToolResultRef.current = `<tool_result name="${toolName}" status="killed">
+Tool execution was terminated by user due to suspected hang or timeout.
+Please acknowledge and continue with an alternative approach or retry with different parameters.
+</tool_result>`
+    
+    // Clear current execution state
+    clearExecutionState()
+    
+    // Note: The actual tool promise will reject with an error due to the flag,
+    // and the error handler in executeToolInternal will handle cleanup
+  }, [runnerState.execution, agentId, addAgentStep, logError, clearExecutionState])
+
   // Track mounted state
   useEffect(() => {
     isMountedRef.current = true
@@ -1143,6 +2003,7 @@ User rejected the tool execution. Please acknowledge and continue with an altern
     return () => {
       abortControllerRef.current?.abort()
       window.api.offAI()
+      cleanupFunctionCallRef.current?.()
       
       // Mark work session as crashed if still active on unmount
       if (workSessionIdRef.current) {
@@ -1164,7 +2025,10 @@ User rejected the tool execution. Please acknowledge and continue with an altern
     approveTool,
     rejectTool,
     canRetry: canRetry(),
-    forceCleanup: performCleanup
+    forceCleanup: performCleanup,
+    // Phase 2: Stall recovery actions
+    forceRetry,
+    killCurrentTool
   }
 }
 

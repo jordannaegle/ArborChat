@@ -40,10 +40,30 @@ export function ToolsSection() {
   const [configModal, setConfigModal] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState<string | null>(null)
   const [mcpEnabled, setMcpEnabled] = useState(true)
+  const [aiSummarizationEnabled, setAiSummarizationEnabled] = useState(true)
 
   useEffect(() => {
     loadServerStatus()
+    loadAISummarizationStatus()
   }, [])
+
+  const loadAISummarizationStatus = async () => {
+    try {
+      const status = await window.api.workJournal.getAISummarizationStatus()
+      setAiSummarizationEnabled(status.enabled)
+    } catch (error) {
+      console.error('Failed to load AI summarization status:', error)
+    }
+  }
+
+  const handleAISummarizationToggle = async (enabled: boolean) => {
+    try {
+      await window.api.workJournal.setAISummarizationEnabled(enabled)
+      setAiSummarizationEnabled(enabled)
+    } catch (error) {
+      console.error('Failed to toggle AI summarization:', error)
+    }
+  }
 
   const loadServerStatus = async () => {
     setLoading(true)
@@ -218,6 +238,17 @@ export function ToolsSection() {
           <p className="text-xs text-text-muted">Master switch for all tool integrations</p>
         </div>
         <ToggleSwitch checked={mcpEnabled} onChange={handleToggleMCP} />
+      </div>
+
+      {/* AI Summarization Toggle */}
+      <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-xl border border-secondary/50">
+        <div>
+          <h3 className="font-medium text-white">AI-Powered Summaries</h3>
+          <p className="text-xs text-text-muted">
+            Use AI to generate coherent checkpoint summaries for agent sessions (uses API credits)
+          </p>
+        </div>
+        <ToggleSwitch checked={aiSummarizationEnabled} onChange={handleAISummarizationToggle} />
       </div>
 
       {/* Server List */}
