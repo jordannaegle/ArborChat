@@ -24,9 +24,10 @@ import { setupMCPHandlers, mcpManager } from './mcp'
 import { setupProjectAnalyzerHandlers } from './projectAnalyzer'
 import { setupPersonaHandlers } from './personas'
 import { setupNotificationHandlers, registerMainWindow } from './notifications'
-import { setupWorkJournalHandlers, cleanupWorkJournalSubscriptions } from './workJournal'
+import { setupWorkJournalHandlers, cleanupWorkJournalSubscriptions, workJournalManager } from './workJournal'
 import { setupNotebookHandlers } from './notebooks'
 import { setupMemoryHandlers, cleanupMemoryService } from './memory'
+import { registerPlaybookHandlers } from './playbook'
 import { getMemoryScheduler, tokenizer, countTokens, countTokensSync, truncateToTokens } from './services'
 import { credentialManager, ProviderId } from './credentials'
 import { getGitRepoInfo, getUncommittedFiles, getChangedFilesSinceBranch, getDiffStats, verifyChanges, getDiffSummary, isGitRepository, getDetailedStatus, commitChanges, getArborChatRoot } from './services'
@@ -392,6 +393,9 @@ app.whenReady().then(() => {
 
   // Setup Work Journal handlers for agent work persistence
   setupWorkJournalHandlers()
+
+  // Setup Playbook handlers for agentic memory system
+  registerPlaybookHandlers(workJournalManager)
 
   // Setup Notebook handlers for saving chat content
   setupNotebookHandlers()

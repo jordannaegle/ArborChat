@@ -1,8 +1,13 @@
 // src/renderer/src/hooks/useAgentWatchdog.ts
 // Phase 2: Agent Execution Monitoring - Watchdog System
 // Author: Alex Chen (Distinguished Software Architect)
+// 
+// ARCHITECTURE NOTE: This hook uses refs for activity tracking to prevent
+// infinite render loops. The activity object from parent changes reference
+// on every render, so we store it in a ref and use a stable primitive
+// (activity.lastProgressAt) to trigger effect re-runs.
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import type { ExecutionPhase, WatchdogConfig } from '../types/agent'
 import { DEFAULT_WATCHDOG_CONFIG } from '../types/agent'
 
@@ -63,6 +68,18 @@ export interface WatchdogCallbacks {
   onActivityResumed?: () => void
 }
 
+// Idle state constant to avoid recreating object
+const IDLE_STATE: WatchdogState = {
+  status: 'idle',
+  timeSinceProgress: 0,
+  hasWarning: false,
+  isStalled: false,
+  currentPhase: null,
+  currentTool: null,
+  currentToolDuration: 0,
+  toolTimeoutImminent: false
+}
+
 /**
  * useAgentWatchdog - Hook for monitoring agent execution and detecting stalls
  * 
@@ -76,19 +93,6 @@ export interface WatchdogCallbacks {
  * @param config - Optional watchdog configuration (uses defaults if not provided)
  * 
  * @returns WatchdogState for UI display
- * 
- * @example
- * ```tsx
- * const watchdogState = useAgentWatchdog(
- *   agentId,
- *   runnerState.execution,
- *   {
- *     onWarnThresholdExceeded: () => console.log('Agent taking longer than expected'),
- *     onStallDetected: () => showStallRecoveryUI(),
- *     onActivityResumed: () => hideStallWarning()
- *   }
- * )
- * ```
  */
 export function useAgentWatchdog(
   agentId: string,
@@ -97,37 +101,40 @@ export function useAgentWatchdog(
   config: WatchdogConfig = DEFAULT_WATCHDOG_CONFIG
 ): WatchdogState {
   // State for UI rendering
-  const [watchdogState, setWatchdogState] = useState<WatchdogState>({
-    status: 'idle',
-    timeSinceProgress: 0,
-    hasWarning: false,
-    isStalled: false,
-    currentPhase: null,
-    currentTool: null,
-    currentToolDuration: 0,
-    toolTimeoutImminent: false
-  })
+  const [watchdogState, setWatchdogState] = useState<WatchdogState>(IDLE_STATE)
 
-  // Refs for tracking callback triggers (to avoid duplicate calls)
+  // === REFS FOR STABLE REFERENCES ===
+  // Store activity in ref to avoid dependency on object reference
+  const activityRef = useRef<WatchdogActivityState | null>(activity)
+  activityRef.current = activity
+
+  // Store callbacks in refs to avoid dependency on inline functions
+  const callbacksRef = useRef(callbacks)
+  callbacksRef.current = callbacks
+
+  // Tracking refs for callback triggers (to avoid duplicate calls)
   const hasTriggeredWarningRef = useRef(false)
   const hasTriggeredStallRef = useRef(false)
   const hasTriggeredTimeoutImminentRef = useRef(false)
   const previousPhaseRef = useRef<ExecutionPhase | null>(null)
+  const currentToolRef = useRef<string | null>(null)
 
-  // Destructure callbacks for stable reference in useEffect
-  const {
-    onWarnThresholdExceeded,
-    onStallDetected,
-    onToolTimeoutImminent,
-    onActivityResumed
-  } = callbacks
+  // Memoize config values to prevent unnecessary effect re-runs
+  const { warnThreshold, stallThreshold, toolTimeout, checkInterval } = config
+  const configValues = useMemo(() => ({
+    warnThreshold,
+    stallThreshold, 
+    toolTimeout,
+    checkInterval
+  }), [warnThreshold, stallThreshold, toolTimeout, checkInterval])
 
   /**
    * Calculate current watchdog metrics
+   * Using ref for activity to avoid dependency issues
    */
-  const calculateMetrics = useCallback((
-    activityState: WatchdogActivityState | null
-  ): Omit<WatchdogState, 'status'> => {
+  const calculateMetrics = useCallback((): Omit<WatchdogState, 'status'> => {
+    const activityState = activityRef.current
+    
     if (!activityState || activityState.phase === 'idle') {
       return {
         timeSinceProgress: 0,
@@ -142,8 +149,8 @@ export function useAgentWatchdog(
 
     const now = Date.now()
     const timeSinceProgress = now - activityState.lastProgressAt
-    const hasWarning = timeSinceProgress > config.warnThreshold
-    const isStalled = timeSinceProgress > config.stallThreshold
+    const hasWarning = timeSinceProgress > configValues.warnThreshold
+    const isStalled = timeSinceProgress > configValues.stallThreshold
 
     // Tool-specific metrics
     const currentTool = activityState.currentToolName || null
@@ -151,7 +158,7 @@ export function useAgentWatchdog(
       ? now - activityState.activityStartedAt
       : 0
     const toolTimeoutImminent = currentTool !== null && 
-      currentToolDuration > config.toolTimeout * 0.8
+      currentToolDuration > configValues.toolTimeout * 0.8
 
     return {
       timeSinceProgress,
@@ -162,7 +169,7 @@ export function useAgentWatchdog(
       currentToolDuration,
       toolTimeoutImminent
     }
-  }, [config.warnThreshold, config.stallThreshold, config.toolTimeout])
+  }, [configValues.warnThreshold, configValues.stallThreshold, configValues.toolTimeout])
 
   /**
    * Determine watchdog status from metrics
@@ -182,33 +189,34 @@ export function useAgentWatchdog(
     return 'normal'
   }, [])
 
+
+  // Derive stable primitives from activity for dependency tracking
+  // This avoids depending on the activity object reference
+  const isActive = activity !== null && activity.phase !== 'idle'
+  const activityPhase = activity?.phase ?? 'idle'
+  const lastProgressAt = activity?.lastProgressAt ?? 0
+
   // Main monitoring effect
+  // Dependencies are carefully chosen primitives, not object references
   useEffect(() => {
     // If no activity or idle, reset state
-    if (!activity || activity.phase === 'idle') {
-      setWatchdogState({
-        status: 'idle',
-        timeSinceProgress: 0,
-        hasWarning: false,
-        isStalled: false,
-        currentPhase: null,
-        currentTool: null,
-        currentToolDuration: 0,
-        toolTimeoutImminent: false
-      })
+    if (!isActive) {
+      setWatchdogState(IDLE_STATE)
       // Reset trigger refs when going idle
       hasTriggeredWarningRef.current = false
       hasTriggeredStallRef.current = false
       hasTriggeredTimeoutImminentRef.current = false
       previousPhaseRef.current = null
+      currentToolRef.current = null
       return
     }
 
-    // Set up polling interval
-    const intervalId = setInterval(() => {
-      const metrics = calculateMetrics(activity)
+    // Tick function for interval - reads from refs for latest values
+    const tick = () => {
+      const metrics = calculateMetrics()
       const status = determineStatus(metrics)
       const newState = { ...metrics, status }
+      const callbacks = callbacksRef.current
 
       // Check for phase transitions (activity resumed)
       if (previousPhaseRef.current !== null && 
@@ -216,63 +224,65 @@ export function useAgentWatchdog(
         // If we were in warning/stall state and now have new progress
         if (!metrics.hasWarning && !metrics.isStalled) {
           console.log(`[Watchdog:${agentId}] Activity resumed after stall/warning`)
-          onActivityResumed?.()
+          callbacks.onActivityResumed?.()
           hasTriggeredWarningRef.current = false
           hasTriggeredStallRef.current = false
         }
       }
-      previousPhaseRef.current = activity.phase
+      previousPhaseRef.current = activityRef.current?.phase ?? null
 
       // Trigger warning callback (once)
       if (metrics.hasWarning && !metrics.isStalled && !hasTriggeredWarningRef.current) {
         console.log(`[Watchdog:${agentId}] Warning threshold exceeded: ${Math.round(metrics.timeSinceProgress / 1000)}s since progress`)
         hasTriggeredWarningRef.current = true
-        onWarnThresholdExceeded?.()
+        callbacks.onWarnThresholdExceeded?.()
       }
 
       // Trigger stall callback (once)
       if (metrics.isStalled && !hasTriggeredStallRef.current) {
         console.log(`[Watchdog:${agentId}] STALL DETECTED: ${Math.round(metrics.timeSinceProgress / 1000)}s since progress`)
         hasTriggeredStallRef.current = true
-        onStallDetected?.()
+        callbacks.onStallDetected?.()
       }
 
       // Trigger tool timeout imminent callback (once per tool)
       if (metrics.toolTimeoutImminent && !hasTriggeredTimeoutImminentRef.current) {
         console.log(`[Watchdog:${agentId}] Tool timeout imminent: ${metrics.currentTool} running for ${Math.round(metrics.currentToolDuration / 1000)}s`)
         hasTriggeredTimeoutImminentRef.current = true
-        onToolTimeoutImminent?.()
+        callbacks.onToolTimeoutImminent?.()
       }
 
-      // Reset tool timeout trigger when tool changes
-      if (metrics.currentTool !== watchdogState.currentTool) {
+      // Reset tool timeout trigger when tool changes (using ref for comparison)
+      if (metrics.currentTool !== currentToolRef.current) {
         hasTriggeredTimeoutImminentRef.current = false
+        currentToolRef.current = metrics.currentTool
       }
 
       setWatchdogState(newState)
-    }, config.checkInterval)
+    }
 
-    // Initial calculation
-    const initialMetrics = calculateMetrics(activity)
-    const initialStatus = determineStatus(initialMetrics)
-    setWatchdogState({ ...initialMetrics, status: initialStatus })
+    // Set up polling interval
+    const intervalId = setInterval(tick, configValues.checkInterval)
+
+    // Run initial tick after a microtask to avoid sync setState during render
+    // This prevents the "setState during render" warning
+    Promise.resolve().then(tick)
 
     return () => clearInterval(intervalId)
   }, [
     agentId,
-    activity,
-    config.checkInterval,
+    isActive,           // Primitive boolean
+    activityPhase,      // Primitive string  
+    lastProgressAt,     // Primitive number - changes when progress made
+    configValues.checkInterval,
     calculateMetrics,
-    determineStatus,
-    onWarnThresholdExceeded,
-    onStallDetected,
-    onToolTimeoutImminent,
-    onActivityResumed,
-    watchdogState.currentTool
+    determineStatus
+    // NOTE: callbacks and activity accessed via refs, not dependencies
   ])
 
   return watchdogState
 }
+
 
 /**
  * Format time duration for display

@@ -36,6 +36,8 @@ export const forestDeepTheme: Theme = {
     glow: 'rgba(34, 197, 94, 0.4)',
     glass: 'rgba(30, 42, 37, 0.7)',
     glassBorder: 'rgba(34, 197, 94, 0.15)',
+    logoBackground: '#22c55e',
+    logoForeground: '#ffffff',
   },
   effects: {
     enableGlass: false,

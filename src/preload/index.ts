@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import { playbookApi } from './playbook'
 
 // MCP API types for the renderer
 interface MCPApprovalRequest {
@@ -1152,7 +1153,9 @@ const api = {
   // Tokenizer API
   tokenizer: tokenizerApi,
   // Project Analyzer API
-  projectAnalyzer: projectAnalyzerApi
+  projectAnalyzer: projectAnalyzerApi,
+  // Playbook API (Agentic Memory System)
+  playbook: playbookApi
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

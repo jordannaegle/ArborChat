@@ -5,7 +5,7 @@ import { NotebookSidebar } from './notebook'
 import { Conversation, Message } from '../types'
 import { Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import logo from '../assets/logo.png'
+import { ArborLogo } from './icons'
 import type { PendingToolCall, ToolExecution } from '../hooks'
 import type { MemoryStatus } from './mcp'
 
@@ -66,7 +66,7 @@ function LoadingState() {
       <div className="flex flex-col items-center gap-6">
         <div className="relative">
           <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-2xl shadow-primary/20 border border-white/5">
-            <img src={logo} alt="ArborChat" className="w-full h-full object-cover" />
+            <ArborLogo size={80} />
           </div>
           <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-lg bg-secondary flex items-center justify-center border border-white/10 shadow-lg">
             <Loader2 className="w-4 h-4 text-primary animate-spin" />
@@ -87,7 +87,7 @@ function WelcomeState() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-8 drag-region">
       <div className="w-24 h-24 rounded-3xl overflow-hidden mb-8 shadow-2xl shadow-primary/10 border border-white/5 transform hover:scale-105 transition-transform duration-500">
-        <img src={logo} alt="ArborChat" className="w-full h-full object-cover" />
+        <ArborLogo size={96} />
       </div>
       <h2 className="text-3xl font-bold text-white mb-3 tracking-tight">Welcome to ArborChat</h2>
       <p className="text-text-muted max-w-sm leading-relaxed text-base">

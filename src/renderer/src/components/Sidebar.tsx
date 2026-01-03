@@ -4,7 +4,7 @@ import { cn } from '../lib/utils'
 import { Conversation } from '../types'
 import { useAgentContext } from '../contexts/AgentContext'
 import { AgentList } from './agent'
-import logo from '../assets/logo.png'
+import { ArborLogo } from './icons'
 
 interface SidebarProps {
   conversations: Conversation[]
@@ -45,8 +45,8 @@ function Logo({ collapsed }: { collapsed: boolean }) {
       "flex items-center gap-3",
       collapsed ? "justify-center px-0" : "px-2"
     )}>
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-black/20 border border-white/10 shrink-0">
-        <img src={logo} alt="ArborChat" className="w-full h-full object-cover" />
+      <div className="shrink-0 shadow-lg shadow-black/20 rounded-lg overflow-hidden">
+        <ArborLogo size={36} />
       </div>
       {!collapsed && (
         <div className="flex flex-col">

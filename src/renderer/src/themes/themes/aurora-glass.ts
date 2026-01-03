@@ -36,6 +36,8 @@ export const auroraGlassTheme: Theme = {
     glow: 'rgba(139, 92, 246, 0.5)',
     glass: 'rgba(30, 30, 50, 0.4)',
     glassBorder: 'rgba(255, 255, 255, 0.1)',
+    logoBackground: '#8b5cf6',
+    logoForeground: '#ffffff',
   },
   effects: {
     enableGlass: true,

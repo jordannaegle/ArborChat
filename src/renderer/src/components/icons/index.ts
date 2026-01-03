@@ -8,3 +8,5 @@ export {
   getProviderIcon,
   ProviderIcon
 } from './ProviderIcons'
+
+export { ArborLogo } from './ArborLogo'

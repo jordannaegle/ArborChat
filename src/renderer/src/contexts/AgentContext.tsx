@@ -667,6 +667,33 @@ Resume from where you left off. Review the above context and continue the task.
       }
     }
     
+    // Agentic Memory: Inject playbook context if available
+    if (window.api?.playbook) {
+      try {
+        console.log('[AgentContext] Fetching playbook context...')
+        const playbookContext = await window.api.playbook.generateContext(
+          options.workingDirectory,
+          2000 // Max ~2000 tokens for playbook
+        )
+        
+        if (playbookContext && playbookContext.trim()) {
+          console.log('[AgentContext] Playbook context loaded, length:', playbookContext.length)
+          
+          // Prepend playbook context (learned knowledge) to system prompt
+          if (enhancedOptions.personaContent) {
+            enhancedOptions.personaContent = `${playbookContext}\n\n${enhancedOptions.personaContent}`
+          } else {
+            enhancedOptions.personaContent = playbookContext
+          }
+        } else {
+          console.log('[AgentContext] No playbook entries available')
+        }
+      } catch (error) {
+        console.warn('[AgentContext] Playbook context injection failed:', error)
+        // Continue without playbook context - non-blocking
+      }
+    }
+    
     // Create the agent with enhanced options
     return createAgent(enhancedOptions)
   }, [createAgent])
