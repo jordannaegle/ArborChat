@@ -85,9 +85,10 @@ function LoadingState() {
 
 function WelcomeState() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center px-8 drag-region">
-      <div className="w-24 h-24 rounded-3xl overflow-hidden mb-8 shadow-2xl shadow-primary/10 border border-white/5 transform hover:scale-105 transition-transform duration-500">
-        <ArborLogo size={96} />
+    <div className="flex-1 flex flex-col items-center justify-center text-center px-8 pt-8 drag-region">
+      {/* macOS HIG: 80px icon with iOS-style corner radius (~18px) */}
+      <div className="w-20 h-20 rounded-[18px] overflow-hidden mb-8 shadow-2xl shadow-primary/10 border border-white/5 transform hover:scale-105 transition-transform duration-500">
+        <ArborLogo size={80} />
       </div>
       <h2 className="text-3xl font-bold text-white mb-3 tracking-tight">Welcome to ArborChat</h2>
       <p className="text-text-muted max-w-sm leading-relaxed text-base">

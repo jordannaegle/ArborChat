@@ -1109,6 +1109,8 @@ const api = {
   setSelectedModel: (model: string) => ipcRenderer.invoke('settings:set-model', model),
   getOllamaServerUrl: () => ipcRenderer.invoke('settings:get-ollama-url'),
   setOllamaServerUrl: (url: string) => ipcRenderer.invoke('settings:set-ollama-url', url),
+  // Theme API - Update dock icon based on theme
+  setDockIcon: (themeId: string) => ipcRenderer.invoke('theme:set-dock-icon', themeId),
   // Model Discovery
   getAvailableModels: (apiKey?: string) => ipcRenderer.invoke('models:get-available', { apiKey }),
   checkOllamaConnection: () => ipcRenderer.invoke('ollama:check-connection'),

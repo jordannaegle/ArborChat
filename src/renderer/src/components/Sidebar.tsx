@@ -40,20 +40,22 @@ function Tooltip({ children, label, show }: { children: React.ReactNode; label: 
 }
 
 function Logo({ collapsed }: { collapsed: boolean }) {
+  // iOS/macOS HIG: Icon size 30px with ~22% corner radius (≈7px)
+  // Provides proper visual breathing room below window controls
   return (
     <div className={cn(
-      "flex items-center gap-3",
-      collapsed ? "justify-center px-0" : "px-2"
+      "flex items-center gap-2.5",
+      collapsed ? "justify-center px-0" : "px-1"
     )}>
-      <div className="shrink-0 shadow-lg shadow-black/20 rounded-lg overflow-hidden">
-        <ArborLogo size={36} />
+      <div className="shrink-0 shadow-lg shadow-black/20 rounded-[7px] overflow-hidden">
+        <ArborLogo size={30} />
       </div>
       {!collapsed && (
         <div className="flex flex-col">
-          <span className="text-white font-bold text-base tracking-tight leading-tight">
+          <span className="text-white font-semibold text-[15px] tracking-tight leading-tight">
             ArborChat
           </span>
-          <span className="text-text-muted text-[10px] uppercase tracking-wider font-medium leading-tight">
+          <span className="text-text-muted text-[9px] uppercase tracking-wider font-medium leading-tight">
             Threaded AI
           </span>
         </div>
@@ -301,7 +303,8 @@ export function Sidebar({
       {/* Header with Logo */}
       <div className={cn(
         "border-b border-secondary/50",
-        collapsed ? "p-2" : "p-4"
+        // macOS HIG: ~28px top padding clears traffic light controls
+        collapsed ? "p-2 pt-7" : "p-4 pt-7"
       )}>
         <div className={cn(
           "drag-region",

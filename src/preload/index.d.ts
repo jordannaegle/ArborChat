@@ -919,6 +919,8 @@ declare global {
       setSelectedModel: (model: string) => Promise<void>
       getOllamaServerUrl: () => Promise<string>
       setOllamaServerUrl: (url: string) => Promise<void>
+      // Theme API - Update dock icon based on theme
+      setDockIcon: (themeId: string) => Promise<boolean>
       getAvailableModels: (apiKey?: string) => Promise<import('../renderer/src/types').Model[]>
       checkOllamaConnection: () => Promise<boolean>
       askAI: (apiKey: string, messages: any[], model: string) => void
