@@ -94,6 +94,8 @@ export const abyssalTheme: Theme = {
     glow: 'rgba(0, 212, 170, 0.4)',           // Bioluminescent aura
     glass: 'rgba(10, 15, 24, 0.75)',          // Deep water glass
     glassBorder: 'rgba(0, 212, 170, 0.1)',    // Glowing edges
+    logoBackground: '#00d4aa',                // Bioluminescent cyan-green
+    logoForeground: '#ffffff',
   },
   effects: {
     // Heavy glass for that underwater distortion feeling

@@ -46,6 +46,10 @@ export interface ThemeColors {
   glow: string              // Glow/shadow color for neon effects
   glass: string             // Glass panel background
   glassBorder: string       // Glass panel border
+
+  // Logo colors
+  logoBackground: string    // Logo background color (defaults to primary if not set)
+  logoForeground: string    // Logo tree/icon color (typically white)
 }
 
 /**

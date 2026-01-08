@@ -93,6 +93,8 @@ export const emberTheme: Theme = {
     glow: 'rgba(255, 107, 53, 0.5)', // Magma glow
     glass: 'rgba(20, 17, 16, 0.85)', // Volcanic glass (obsidian)
     glassBorder: 'rgba(255, 107, 53, 0.12)',
+    logoBackground: '#ff6b35',       // Molten orange
+    logoForeground: '#ffffff',
   },
   effects: {
     // Obsidian glass effect

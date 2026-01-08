@@ -5,6 +5,7 @@ import { WorkJournalProvider, SessionResumeDialog, WorkJournalPanel } from './co
 import { SettingsPanel } from './components/settings'
 import { PersonaListModal } from './components/chat'
 import { ToastContainer } from './components/notifications'
+import { AbyssalBackground } from './components/backgrounds'
 import { AgentProvider, useAgentContext, NotificationProvider, useNotificationContext, ThemeProvider } from './contexts'
 import { SettingsProvider } from './contexts/SettingsContext'
 import type { ResumptionContext, ResumedSession } from './contexts/AgentContext'
@@ -289,12 +290,9 @@ function AppContent({ apiKey }: { apiKey: string }) {
       contextTokenBudget: config.contextTokenBudget
     }
 
-    // Use async version if Phase 4 features are enabled
-    if (config.autoAnalyzeProject || config.checkpointToRestore) {
-      await agentContext.createAgentWithAdvancedContext(agentOptions)
-    } else {
-      agentContext.createAgent(agentOptions)
-    }
+    // Always use advanced context creation for playbook injection
+    // (playbook injection should happen for ALL agents, not just when autoAnalyzeProject is enabled)
+    await agentContext.createAgentWithAdvancedContext(agentOptions)
 
     setShowAgentLaunchModal(false)
     setAgentLaunchContext(undefined)
@@ -876,6 +874,7 @@ function App() {
 
   return (
     <ThemeProvider>
+      <AbyssalBackground />
       <SettingsProvider>
         <MCPProvider autoInit={true}>
           <AgentProvider>

@@ -36,6 +36,8 @@ export const neonCyberTheme: Theme = {
     glow: 'rgba(244, 114, 182, 0.5)',
     glass: 'rgba(26, 26, 40, 0.8)',
     glassBorder: 'rgba(244, 114, 182, 0.2)',
+    logoBackground: '#f472b6',
+    logoForeground: '#ffffff',
   },
   effects: {
     enableGlass: true,

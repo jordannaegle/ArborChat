@@ -62,6 +62,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   useEffect(() => {
     applyThemeToDOM(currentTheme)
     console.log(`[ThemeContext] Applied theme: ${currentTheme.id}`)
+    
+    // Update dock icon to match theme (macOS only)
+    if (window.api?.setDockIcon) {
+      window.api.setDockIcon(currentTheme.id).catch((err: Error) => {
+        console.warn('[ThemeContext] Failed to update dock icon:', err)
+      })
+    }
   }, [currentTheme])
 
   /**

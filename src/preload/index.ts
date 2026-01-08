@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import { playbookApi } from './playbook'
 
 // MCP API types for the renderer
 interface MCPApprovalRequest {
@@ -1108,6 +1109,8 @@ const api = {
   setSelectedModel: (model: string) => ipcRenderer.invoke('settings:set-model', model),
   getOllamaServerUrl: () => ipcRenderer.invoke('settings:get-ollama-url'),
   setOllamaServerUrl: (url: string) => ipcRenderer.invoke('settings:set-ollama-url', url),
+  // Theme API - Update dock icon based on theme
+  setDockIcon: (themeId: string) => ipcRenderer.invoke('theme:set-dock-icon', themeId),
   // Model Discovery
   getAvailableModels: (apiKey?: string) => ipcRenderer.invoke('models:get-available', { apiKey }),
   checkOllamaConnection: () => ipcRenderer.invoke('ollama:check-connection'),
@@ -1152,7 +1155,9 @@ const api = {
   // Tokenizer API
   tokenizer: tokenizerApi,
   // Project Analyzer API
-  projectAnalyzer: projectAnalyzerApi
+  projectAnalyzer: projectAnalyzerApi,
+  // Playbook API (Agentic Memory System)
+  playbook: playbookApi
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

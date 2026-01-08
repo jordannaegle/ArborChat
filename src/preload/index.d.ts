@@ -608,6 +608,111 @@ interface ArborMemoryAPI {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Playbook Types - Agentic Memory for autonomous learning
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Types of playbook entries */
+type PlaybookEntryType = 
+  | 'strategy'           // Patterns that lead to success
+  | 'mistake'            // Patterns to avoid
+  | 'preference'         // User-specific preferences
+  | 'codebase_context'   // Project/codebase-specific knowledge
+
+/**
+ * Scope of a playbook entry
+ * - 'global': Applies to all sessions
+ * - 'tool:xxx': Applies when using specific tool
+ * - 'project:xxx': Applies to specific project/directory
+ */
+type PlaybookScope = 'global' | `tool:${string}` | `project:${string}`
+
+/** A single playbook entry representing learned knowledge */
+interface PlaybookEntry {
+  id: string
+  entryType: PlaybookEntryType
+  content: string
+  helpfulCount: number
+  harmfulCount: number
+  scope: PlaybookScope
+  sourceSessionId?: string
+  createdAt: number
+  lastReferenced: number
+}
+
+/** Options for retrieving playbook entries */
+interface GetPlaybookOptions {
+  /** Maximum number of entries to return */
+  limit?: number
+  /** Filter by entry type */
+  types?: PlaybookEntryType[]
+  /** Filter by scope */
+  scope?: PlaybookScope
+  /** Minimum helpful count */
+  minHelpful?: number
+  /** Working directory for project-scoped entries */
+  workingDirectory?: string
+}
+
+/** New playbook entry (without id and timestamps) */
+interface NewPlaybookEntry {
+  entryType: PlaybookEntryType
+  content: string
+  helpfulCount?: number
+  harmfulCount?: number
+  scope?: PlaybookScope
+  sourceSessionId?: string
+}
+
+/** Playbook formatted for injection into agent context */
+interface FormattedPlaybook {
+  strategies: string[]
+  mistakes: string[]
+  preferences: string[]
+  codebaseContext: string[]
+  totalEntries: number
+  tokenEstimate: number
+}
+
+/** Playbook statistics */
+interface PlaybookStats {
+  totalEntries: number
+  strategiesCount: number
+  mistakesCount: number
+  preferencesCount: number
+  codebaseContextCount: number
+  avgHelpfulScore: number
+  lastUpdated: number
+}
+
+/** Statistics about the learning system */
+interface LearningStats {
+  totalSessionsReviewed: number
+  totalEntriesCreated: number
+  avgSessionScore: number
+  reviewsToday: number
+  lastReviewTimestamp: number
+}
+
+/** Playbook API - Agentic Memory for autonomous learning */
+interface PlaybookAPI {
+  // Entry operations
+  getEntries: (options?: GetPlaybookOptions) => Promise<PlaybookEntry[]>
+  getRelevant: (workingDirectory?: string, limit?: number) => Promise<PlaybookEntry[]>
+  formatForContext: (entries: PlaybookEntry[]) => Promise<FormattedPlaybook>
+  generateContext: (workingDirectory?: string, maxTokens?: number) => Promise<string>
+  addEntry: (entry: NewPlaybookEntry) => Promise<PlaybookEntry>
+  updateScore: (entryId: string, helpful: boolean) => Promise<void>
+  getStats: () => Promise<PlaybookStats>
+  seed: () => Promise<void>
+  
+  // Learning system
+  submitFeedback: (sessionId: string, rating: 'helpful' | 'unhelpful', comment?: string) => Promise<void>
+  getLearningStats: () => Promise<LearningStats>
+  triggerReflection: (sessionId: string) => Promise<void>
+  runMaintenance: () => Promise<void>
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Tokenizer Types - Accurate token counting for context management
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -814,6 +919,8 @@ declare global {
       setSelectedModel: (model: string) => Promise<void>
       getOllamaServerUrl: () => Promise<string>
       setOllamaServerUrl: (url: string) => Promise<void>
+      // Theme API - Update dock icon based on theme
+      setDockIcon: (themeId: string) => Promise<boolean>
       getAvailableModels: (apiKey?: string) => Promise<import('../renderer/src/types').Model[]>
       checkOllamaConnection: () => Promise<boolean>
       askAI: (apiKey: string, messages: any[], model: string) => void
@@ -847,6 +954,8 @@ declare global {
       tokenizer: TokenizerAPI
       // Project Analyzer API
       projectAnalyzer: ProjectAnalyzerAPI
+      // Playbook API
+      playbook: PlaybookAPI
     }
   }
 }
@@ -928,5 +1037,15 @@ export type {
   TokenizerStats,
   TokenizerAPI,
   // Project Analyzer types
-  ProjectAnalyzerAPI
+  ProjectAnalyzerAPI,
+  // Playbook types
+  PlaybookEntryType,
+  PlaybookScope,
+  PlaybookEntry,
+  GetPlaybookOptions,
+  NewPlaybookEntry,
+  FormattedPlaybook,
+  PlaybookStats,
+  LearningStats,
+  PlaybookAPI
 }

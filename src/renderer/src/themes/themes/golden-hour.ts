@@ -75,6 +75,8 @@ export const goldenHourTheme: Theme = {
     glow: 'rgba(212, 165, 116, 0.35)',        // Warm ambient glow
     glass: 'rgba(26, 29, 36, 0.85)',          // Frosted twilight
     glassBorder: 'rgba(212, 165, 116, 0.12)', // Warm glass edge
+    logoBackground: '#d4a574',                // Amber gold - matches primary
+    logoForeground: '#ffffff',                // White tree for contrast
   },
   effects: {
     // Subtle glass for an air of sophistication

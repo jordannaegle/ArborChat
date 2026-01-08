@@ -7,6 +7,14 @@ const dbPath = join(app.getPath('userData'), 'arborchat.db')
 const db = new Database(dbPath)
 db.pragma('journal_mode = WAL')
 
+/**
+ * Get the database instance
+ * Used by services that need direct database access
+ */
+export function getDb(): Database.Database {
+  return db;
+}
+
 export interface Message {
   id: string
   conversation_id: string

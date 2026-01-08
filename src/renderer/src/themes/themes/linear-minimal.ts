@@ -36,6 +36,8 @@ export const linearMinimalTheme: Theme = {
     glow: 'rgba(59, 130, 246, 0.3)',
     glass: 'rgba(28, 28, 31, 0.9)',
     glassBorder: 'rgba(255, 255, 255, 0.06)',
+    logoBackground: '#3b82f6',
+    logoForeground: '#ffffff',
   },
   effects: {
     enableGlass: false,

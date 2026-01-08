@@ -3,6 +3,29 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import iconPng from '../../resources/icon.png?asset'
 import iconIco from '../../resources/icon.ico?asset'
+// Themed icons for dock icon customization
+import iconMidnight from '../../resources/icons/icon-midnight.png?asset'
+import iconAuroraGlass from '../../resources/icons/icon-aurora-glass.png?asset'
+import iconLinearMinimal from '../../resources/icons/icon-linear-minimal.png?asset'
+import iconForestDeep from '../../resources/icons/icon-forest-deep.png?asset'
+import iconNeonCyber from '../../resources/icons/icon-neon-cyber.png?asset'
+import iconGoldenHour from '../../resources/icons/icon-golden-hour.png?asset'
+import iconAbyssal from '../../resources/icons/icon-abyssal.png?asset'
+import iconCelestial from '../../resources/icons/icon-celestial.png?asset'
+import iconEmber from '../../resources/icons/icon-ember.png?asset'
+
+// Map theme IDs to their icon assets
+const themeIcons: Record<string, string> = {
+  'midnight': iconMidnight,
+  'aurora-glass': iconAuroraGlass,
+  'linear-minimal': iconLinearMinimal,
+  'forest-deep': iconForestDeep,
+  'neon-cyber': iconNeonCyber,
+  'golden-hour': iconGoldenHour,
+  'abyssal': iconAbyssal,
+  'celestial': iconCelestial,
+  'ember': iconEmber
+}
 import {
   initDB,
   getConversations,
@@ -24,9 +47,10 @@ import { setupMCPHandlers, mcpManager } from './mcp'
 import { setupProjectAnalyzerHandlers } from './projectAnalyzer'
 import { setupPersonaHandlers } from './personas'
 import { setupNotificationHandlers, registerMainWindow } from './notifications'
-import { setupWorkJournalHandlers, cleanupWorkJournalSubscriptions } from './workJournal'
+import { setupWorkJournalHandlers, cleanupWorkJournalSubscriptions, workJournalManager } from './workJournal'
 import { setupNotebookHandlers } from './notebooks'
 import { setupMemoryHandlers, cleanupMemoryService } from './memory'
+import { registerPlaybookHandlers } from './playbook'
 import { getMemoryScheduler, tokenizer, countTokens, countTokensSync, truncateToTokens } from './services'
 import { credentialManager, ProviderId } from './credentials'
 import { getGitRepoInfo, getUncommittedFiles, getChangedFilesSinceBranch, getDiffStats, verifyChanges, getDiffSummary, isGitRepository, getDetailedStatus, commitChanges, getArborChatRoot } from './services'
@@ -112,6 +136,17 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:set-model', (_, model) => setSelectedModel(model))
   ipcMain.handle('settings:get-ollama-url', () => getOllamaServerUrl())
   ipcMain.handle('settings:set-ollama-url', (_, url) => setOllamaServerUrl(url))
+
+  // Theme Handler - Update dock icon when theme changes
+  ipcMain.handle('theme:set-dock-icon', (_, themeId: string) => {
+    if (process.platform === 'darwin' && app.dock) {
+      const iconPath = themeIcons[themeId] || iconMidnight
+      app.dock.setIcon(iconPath)
+      console.log(`[Theme] Updated dock icon for theme: ${themeId}`)
+      return true
+    }
+    return false
+  })
 
   // Tokenizer Handlers - accurate token counting for context management
   ipcMain.handle('tokenizer:count', async (_event, text: string, modelId?: string): Promise<number> => {
@@ -392,6 +427,9 @@ app.whenReady().then(() => {
 
   // Setup Work Journal handlers for agent work persistence
   setupWorkJournalHandlers()
+
+  // Setup Playbook handlers for agentic memory system
+  registerPlaybookHandlers(workJournalManager)
 
   // Setup Notebook handlers for saving chat content
   setupNotebookHandlers()

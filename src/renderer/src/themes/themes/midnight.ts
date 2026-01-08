@@ -36,6 +36,8 @@ export const midnightTheme: Theme = {
     glow: 'rgba(88, 101, 242, 0.4)',
     glass: 'rgba(47, 49, 54, 0.6)',
     glassBorder: 'rgba(255, 255, 255, 0.1)',
+    logoBackground: '#5865f2',
+    logoForeground: '#ffffff',
   },
   effects: {
     enableGlass: false,

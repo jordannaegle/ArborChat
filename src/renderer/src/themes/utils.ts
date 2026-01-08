@@ -18,6 +18,7 @@ function camelToKebab(str: string): string {
 const THEME_ANIMATION_CLASSES: Record<string, string> = {
   'celestial': 'celestial-animated',
   'ember': 'ember-animated',
+  'abyssal': 'abyssal-animated',
 }
 
 /**
@@ -66,6 +67,10 @@ export function applyThemeToDOM(theme: Theme): void {
   root.style.setProperty('--color-success', theme.colors.success)
   root.style.setProperty('--color-warning', theme.colors.warning)
   root.style.setProperty('--color-danger', theme.colors.error)
+
+  // Logo colors - used by ArborLogo component
+  root.style.setProperty('--theme-logo-background', theme.colors.logoBackground || theme.colors.primary)
+  root.style.setProperty('--theme-logo-foreground', theme.colors.logoForeground || '#ffffff')
 }
 
 /**

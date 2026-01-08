@@ -101,6 +101,8 @@ export const celestialTheme: Theme = {
     glow: 'rgba(255, 110, 180, 0.5)', // Nebula glow
     glass: 'rgba(14, 10, 24, 0.8)',   // Space dust glass
     glassBorder: 'rgba(168, 130, 255, 0.15)',
+    logoBackground: '#ff6eb4',        // Hot nebula pink
+    logoForeground: '#ffffff',
   },
   effects: {
     // Glass effects for that space station viewport feel
