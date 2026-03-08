@@ -8,6 +8,8 @@ import { MistralProvider } from './providers/mistral'
 import { AIProvider } from './providers/base'
 import { ChatMessage, StreamParams } from './providers/types'
 import { credentialManager, ProviderId } from './credentials'
+import { ensureUsableModel, markModelDenied } from './models'
+import { getOllamaServerUrl } from './db'
 
 const DEFAULT_MODEL = 'gemini-2.5-flash'
 
@@ -63,6 +65,36 @@ function getProviderIdFromModel(modelId: string): ProviderId | null {
   return 'gemini' // Default fallback
 }
 
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const status = (error as { status?: unknown }).status
+    return typeof status === 'number' ? status : undefined
+  }
+  return undefined
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) {
+    return undefined
+  }
+
+  if ('code' in error && typeof (error as { code?: unknown }).code === 'string') {
+    return (error as { code: string }).code
+  }
+
+  if (
+    'error' in error &&
+    typeof (error as { error?: unknown }).error === 'object' &&
+    (error as { error?: unknown }).error !== null &&
+    'code' in (error as { error: { code?: unknown } }).error &&
+    typeof (error as { error: { code?: unknown } }).error.code === 'string'
+  ) {
+    return (error as { error: { code: string } }).error.code
+  }
+
+  return undefined
+}
+
 /**
  * Validates API connection for a specific model
  * @param apiKey - API key (required for Gemini, optional for Ollama)
@@ -78,7 +110,8 @@ export async function validateParams(
   const provider = getProviderForModel(modelName)
   console.log('[AI] Using provider:', provider.name)
 
-  return provider.validateConnection(apiKey)
+  const validation = await provider.validateConnection(apiKey)
+  return validation.status === 'ok'
 }
 
 /**
@@ -96,11 +129,24 @@ export async function streamResponse(
   modelName: string = DEFAULT_MODEL
 ): Promise<void> {
   console.log('[AI] streamResponse called')
-  console.log('[AI] Using model:', modelName)
+  console.log('[AI] Requested model:', modelName)
   console.log('[AI] Total messages received:', messages.length)
 
-  const provider = getProviderForModel(modelName)
-  const providerId = getProviderIdFromModel(modelName)
+  const ollamaUrl = getOllamaServerUrl()
+  const ensureResult = await ensureUsableModel(modelName, ollamaUrl)
+  const resolvedModel = ensureResult.resolvedModelId || modelName
+  if (resolvedModel !== modelName) {
+    window.webContents.send('ai:model-switched', {
+      from: modelName,
+      to: resolvedModel,
+      reason: ensureResult.reason
+    })
+  }
+
+  console.log('[AI] Using model:', resolvedModel)
+
+  const provider = getProviderForModel(resolvedModel)
+  const providerId = getProviderIdFromModel(resolvedModel)
   console.log('[AI] Using provider:', provider.name, `(${providerId})`)
 
   // Automatic API key injection from credential manager
@@ -125,12 +171,18 @@ export async function streamResponse(
   const params: StreamParams = {
     window,
     messages: chatMessages,
-    modelId: modelName
+    modelId: resolvedModel
   }
 
   try {
     await provider.streamResponse(params, apiKey || undefined)
   } catch (error) {
+    const status = getErrorStatus(error)
+    const code = getErrorCode(error)
+    if (status === 403 || code === 'no_access') {
+      const message = error instanceof Error ? error.message : 'Model access denied'
+      await markModelDenied(resolvedModel, message, code || 'no_access')
+    }
     console.error('[AI] Provider error:', error)
     throw error
   }

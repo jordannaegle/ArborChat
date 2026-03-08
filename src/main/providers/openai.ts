@@ -4,58 +4,84 @@
 
 import OpenAI from 'openai'
 import { AIProvider } from './base'
-import { AIModel, StreamParams } from './types'
+import { AIModel, ModelProbeResult, ProviderValidationResult, StreamParams } from './types'
 import { toOpenAIFunctions } from './toolFormatter'
 import { mcpManager } from '../mcp/manager'
 
-/**
- * Available OpenAI models (direct API)
- * These are the primary models users would want access to
- */
-const OPENAI_MODELS: AIModel[] = [
-  {
-    id: 'gpt-4.1',
+const OPENAI_MODEL_LABELS: Record<string, { name: string; description: string }> = {
+  'gpt-4.1': {
     name: 'GPT-4.1',
-    description: 'Latest flagship model with superior reasoning',
-    provider: 'openai',
-    isLocal: false
+    description: 'Latest flagship model with superior reasoning'
   },
-  {
-    id: 'gpt-4.1-mini',
+  'gpt-4.1-mini': {
     name: 'GPT-4.1 Mini',
-    description: 'Fast & cost-effective for most tasks',
-    provider: 'openai',
-    isLocal: false
+    description: 'Fast and cost-effective for most tasks'
   },
-  {
-    id: 'gpt-4.1-nano',
+  'gpt-4.1-nano': {
     name: 'GPT-4.1 Nano',
-    description: 'Fastest and most affordable model',
-    provider: 'openai',
-    isLocal: false
+    description: 'Fastest and most affordable model'
   },
-  {
-    id: 'o3',
+  o3: {
     name: 'o3',
-    description: 'Most advanced reasoning model',
-    provider: 'openai',
-    isLocal: false
+    description: 'Most advanced reasoning model'
   },
-  {
-    id: 'o3-mini',
+  'o3-mini': {
     name: 'o3 Mini',
-    description: 'Fast reasoning model',
-    provider: 'openai',
-    isLocal: false
+    description: 'Fast reasoning model'
   },
-  {
-    id: 'o4-mini',
+  'o4-mini': {
     name: 'o4 Mini',
-    description: 'Latest efficient reasoning model',
+    description: 'Latest efficient reasoning model'
+  },
+  'gpt-5.1': {
+    name: 'GPT-5.1',
+    description: 'Latest high-capability OpenAI model'
+  }
+}
+
+function formatOpenAIModelName(modelId: string): string {
+  const labelled = OPENAI_MODEL_LABELS[modelId]
+  if (labelled) return labelled.name
+
+  return modelId
+    .replace(/^gpt-/, 'GPT-')
+    .replace(/^o(\d)/, 'o$1')
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+function formatOpenAIModelDescription(modelId: string): string {
+  return OPENAI_MODEL_LABELS[modelId]?.description || 'OpenAI chat-capable model'
+}
+
+function isCandidateOpenAIModelId(modelId: string): boolean {
+  if (!modelId) return false
+  return (
+    modelId.startsWith('gpt-') ||
+    modelId.startsWith('o1') ||
+    modelId.startsWith('o3') ||
+    modelId.startsWith('o4') ||
+    modelId.startsWith('o5')
+  )
+}
+
+function toOpenAIModel(modelId: string): AIModel {
+  return {
+    id: modelId,
+    name: formatOpenAIModelName(modelId),
+    description: formatOpenAIModelDescription(modelId),
     provider: 'openai',
     isLocal: false
   }
-]
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const status = (error as { status?: unknown }).status
+    return typeof status === 'number' ? status : undefined
+  }
+  return undefined
+}
 
 /**
  * OpenAI Direct API Provider implementation
@@ -76,48 +102,103 @@ export class OpenAIProvider implements AIProvider {
     
     // Match OpenAI model patterns
     return (
-      OPENAI_MODELS.some((m) => m.id === modelId) ||
-      modelId.startsWith('gpt-') ||
-      modelId.startsWith('o1') ||
-      modelId.startsWith('o3') ||
-      modelId.startsWith('o4')
+      isCandidateOpenAIModelId(modelId)
     )
   }
 
   /**
    * Validate connection with OpenAI API
    */
-  async validateConnection(apiKey?: string): Promise<boolean> {
-    if (!apiKey) {
-      console.error('[OpenAI] No API key provided')
-      return false
+  async validateConnection(apiKey?: string): Promise<ProviderValidationResult> {
+    const trimmedKey = apiKey?.trim()
+    if (!trimmedKey) {
+      return { status: 'invalid_key', message: 'No API key provided' }
     }
 
     console.log('[OpenAI] validateConnection called')
 
     try {
-      const client = new OpenAI({ apiKey })
+      const client = new OpenAI({ apiKey: trimmedKey })
 
-      // Use a minimal API call to validate
-      await client.chat.completions.create({
-        model: 'gpt-4.1-nano',
-        max_tokens: 10,
-        messages: [{ role: 'user', content: 'Hi' }]
-      })
+      // Validate credentials with a lightweight auth check that does not rely
+      // on access to any specific model.
+      await client.models.list()
 
       console.log('[OpenAI] Validation successful!')
-      return true
+      return { status: 'ok' }
     } catch (error: unknown) {
       console.error('[OpenAI] validateConnection ERROR:', error)
-      return false
+      const status = getErrorStatus(error)
+      if (status === 401) {
+        return { status: 'invalid_key', message: 'OpenAI API key is invalid or expired' }
+      }
+      if (status === 403) {
+        return { status: 'insufficient_scope', message: 'OpenAI account lacks required model access' }
+      }
+      if (status === 429) {
+        return { status: 'rate_limited', message: 'OpenAI validation hit rate limits' }
+      }
+      return { status: 'network_error', message: 'Unable to reach OpenAI right now' }
     }
   }
 
   /**
-   * Get available OpenAI models
+   * Backward-compatible model list hook.
    */
-  async getAvailableModels(_apiKey?: string): Promise<AIModel[]> {
-    return OPENAI_MODELS
+  async getAvailableModels(apiKey?: string): Promise<AIModel[]> {
+    const trimmedKey = apiKey?.trim()
+    if (!trimmedKey) {
+      return []
+    }
+    return this.listCandidateModels(trimmedKey)
+  }
+
+  async listCandidateModels(apiKey: string): Promise<AIModel[]> {
+    try {
+      const client = new OpenAI({ apiKey })
+      const response = await client.models.list()
+      return response.data
+        .map((model) => model.id)
+        .filter((id): id is string => typeof id === 'string' && isCandidateOpenAIModelId(id))
+        .map((id) => toOpenAIModel(id))
+    } catch (error: unknown) {
+      const status = getErrorStatus(error)
+      if (status === 401 || status === 403) {
+        return []
+      }
+      console.error('[OpenAI] getAvailableModels ERROR:', error)
+      return []
+    }
+  }
+
+  async probeModelAccess(model: AIModel, apiKey: string): Promise<ModelProbeResult> {
+    try {
+      const client = new OpenAI({ apiKey })
+      await client.chat.completions.create({
+        model: model.id,
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'ping' }]
+      })
+      return { status: 'verified' }
+    } catch (error: unknown) {
+      const status = getErrorStatus(error)
+      if (status === 401) {
+        return { status: 'denied', code: 'invalid_key', message: 'Invalid OpenAI API key' }
+      }
+      if (status === 403) {
+        return { status: 'denied', code: 'insufficient_scope', message: `No access to ${model.id}` }
+      }
+      if (status === 429) {
+        return { status: 'transient_error', code: 'rate_limited', message: 'Rate limited probing model access' }
+      }
+      if (status && status >= 500) {
+        return { status: 'transient_error', code: 'provider_error', message: 'OpenAI service unavailable' }
+      }
+      if (status === 400 || status === 404) {
+        return { status: 'denied', code: 'unsupported', message: `Model ${model.id} is not usable for chat completions` }
+      }
+      return { status: 'transient_error', code: 'network_error', message: 'Network error probing model access' }
+    }
   }
 
   /**

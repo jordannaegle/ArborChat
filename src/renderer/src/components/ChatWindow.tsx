@@ -7,7 +7,7 @@ import { InlineToolCall, MemoryIndicator, ToolStepGroup } from './mcp'
 import type { MemoryStatus, ToolCallStatus } from './mcp'
 import { SlashCommandMenu, MarkdownRenderer } from './chat'
 import { NotebookIcon, SaveToNotebookModal } from './notebook'
-import { useSlashCommands, useStreamingStepExtractor } from '../hooks'
+import { useSlashCommands } from '../hooks'
 import type { PendingToolCall, ToolExecution } from '../hooks'
 import { useSettings } from '../contexts/SettingsContext'
 import { useNotificationContext } from '../contexts/NotificationContext'
@@ -61,6 +61,11 @@ const TOOL_RISK_LEVELS: Record<string, 'safe' | 'moderate' | 'dangerous'> = {
 
 function getToolRiskLevel(toolName: string): 'safe' | 'moderate' | 'dangerous' {
   return TOOL_RISK_LEVELS[toolName] || 'moderate'
+}
+
+function isNearBottom(container: HTMLDivElement, threshold = 120): boolean {
+  const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+  return distanceFromBottom <= threshold
 }
 
 interface ChatWindowProps {
@@ -330,6 +335,7 @@ export function ChatWindow({
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const shouldStickToBottomRef = useRef(true)
 
   // Slash command integration
   const { success: showSuccess, error: showError } = useNotificationContext()
@@ -360,24 +366,9 @@ export function ChatWindow({
   const { settings } = useSettings()
   const useEnhancedToolDisplay = settings.enhancedToolDisplay
 
-  // Get streaming content for real-time step extraction
+  // Current stream state for this panel (used by timeline + scroll behavior)
   const lastMessage = messages[messages.length - 1]
   const isLastMessageStreaming = pending && lastMessage?.role === 'assistant'
-  
-  // Phase 6.4: Real-time thinking extraction from streaming content
-  // Extracts AI thinking patterns as they stream in for potential display
-  const { thinkingSteps, verificationSteps } = useStreamingStepExtractor({
-    streamingContent: isLastMessageStreaming ? (lastMessage?.content || '') : '',
-    isStreaming: !!isLastMessageStreaming
-  })
-  
-  // Clear extracted steps when a new conversation starts or streaming ends
-  useEffect(() => {
-    if (!isLastMessageStreaming && (thinkingSteps.length > 0 || verificationSteps.length > 0)) {
-      // Steps will be cleared automatically when streaming restarts
-      // Could integrate these into step groups in a future enhancement
-    }
-  }, [isLastMessageStreaming, thinkingSteps.length, verificationSteps.length])
 
   // Auto-resize textarea based on content
   const adjustTextareaHeight = useCallback(() => {
@@ -390,15 +381,37 @@ export function ChatWindow({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`
   }, [])
 
-  // Auto-scroll on new messages or pending tool call
+  // Track whether user is still anchored near the bottom.
+  // If they scroll up to read older messages, avoid yanking the viewport down.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: 'smooth'
-      })
+    const container = scrollRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      shouldStickToBottomRef.current = isNearBottom(container)
     }
-  }, [messages, pendingToolCall])
+
+    handleScroll()
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Auto-scroll only when user is near bottom. Use instant scroll while streaming
+  // to avoid restarting smooth animations on every token update.
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+
+    if (!shouldStickToBottomRef.current && !isNearBottom(container)) {
+      return
+    }
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: isLastMessageStreaming ? 'auto' : 'smooth'
+    })
+    shouldStickToBottomRef.current = true
+  }, [messages, pendingToolCall, isLastMessageStreaming])
 
   // Focus input on mount
   useEffect(() => {
@@ -494,22 +507,17 @@ export function ChatWindow({
   // Build unified timeline that interleaves messages and tool calls
   // Tool calls appear after the assistant message that triggered them
   const timeline = useMemo((): TimelineItem[] => {
-    // DEBUG: Log inputs to diagnose tool display issue
-    console.log('[ChatWindow] Timeline building:', {
-      useEnhancedToolDisplay,
-      toolExecutionsCount: toolExecutions?.length || 0,
-      toolExecutions: toolExecutions?.map(e => ({ id: e.id, toolName: e.toolName, status: e.status })),
-      pendingToolCall: pendingToolCall ? { id: pendingToolCall.id, tool: pendingToolCall.tool } : null,
-      messagesCount: messages.length
-    })
-    
     const items: TimelineItem[] = []
     
     // Track which tool executions we've added
     const usedToolExecIds = new Set<string>()
     
     // Helper to create step group from executions
-    const createStepGroup = (executions: ToolExecution[], pendingTool?: PendingToolCall): StepGroupData => {
+    const createStepGroup = (
+      executions: ToolExecution[],
+      pendingTool: PendingToolCall | undefined,
+      anchorId: string
+    ): StepGroupData => {
       const steps = executions.map(exec => {
         const serverName = inferServerFromTool(exec.toolName)
         return toolExecutionToStep({
@@ -534,9 +542,11 @@ export function ChatWindow({
       
       // Determine collapsed state - expand if any pending
       const hasPending = steps.some(s => s.toolCall?.status === 'pending')
+      const executionPart = executions.map((exec) => exec.id).join('-') || 'none'
+      const pendingPart = pendingTool ? pendingTool.id : 'none'
       
       return {
-        groupId: `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        groupId: `group-${anchorId}-${executionPart}-${pendingPart}`,
         steps,
         collapsed: !hasPending
       }
@@ -549,31 +559,15 @@ export function ChatWindow({
       
       items.push({ type: 'message', data: msg, isStreaming: msgIsStreaming })
       
-      // After an assistant message, add any completed tool executions
-      // Tool calls happen after the AI requests them (in an assistant message)
-      // FIX: Add tool executions after EVERY assistant message, not just "last before user"
-      // The usedToolExecIds set prevents duplicates, so tools appear after the FIRST
-      // assistant message they encounter (which is the one that requested them)
+      // After an assistant message, add any completed tool executions.
       if (msg.role === 'assistant' && toolExecutions) {
         // Collect all unused tool executions
         const unusedExecs = toolExecutions.filter(exec => !usedToolExecIds.has(exec.id))
         
         if (unusedExecs.length > 0) {
-          console.log('[ChatWindow] Adding tool executions to timeline:', {
-            useEnhancedToolDisplay,
-            count: unusedExecs.length,
-            execIds: unusedExecs.map(e => e.id),
-            afterMessageIndex: i
-          })
-          
           if (useEnhancedToolDisplay) {
             // Create a step group for consecutive executions
-            const stepGroup = createStepGroup(unusedExecs)
-            console.log('[ChatWindow] Created step group:', {
-              groupId: stepGroup.groupId,
-              stepsCount: stepGroup.steps.length,
-              steps: stepGroup.steps.map(s => ({ id: s.id, type: s.type, toolName: s.toolCall?.name }))
-            })
+            const stepGroup = createStepGroup(unusedExecs, undefined, msg.id)
             items.push({ type: 'tool_step_group', data: stepGroup })
           } else {
             // Legacy: add individual tool executions
@@ -596,7 +590,7 @@ export function ChatWindow({
       
       if (remainingExecs.length > 0) {
         if (useEnhancedToolDisplay) {
-          const stepGroup = createStepGroup(remainingExecs)
+          const stepGroup = createStepGroup(remainingExecs, undefined, 'remaining')
           items.push({ type: 'tool_step_group', data: stepGroup })
         } else {
           for (const exec of remainingExecs) {
@@ -615,21 +609,13 @@ export function ChatWindow({
     if (pendingToolCall) {
       if (useEnhancedToolDisplay) {
         // Create a step group with just the pending tool
-        const stepGroup = createStepGroup([], pendingToolCall)
+        const stepGroup = createStepGroup([], pendingToolCall, `pending-${pendingToolCall.id}`)
         items.push({ type: 'tool_step_group', data: stepGroup })
       } else {
         items.push({ type: 'pending_tool', data: pendingToolCall })
       }
     }
-    
-    // DEBUG: Log final timeline
-    console.log('[ChatWindow] Final timeline:', {
-      itemCount: items.length,
-      types: items.map(i => i.type),
-      toolStepGroups: items.filter(i => i.type === 'tool_step_group').length,
-      toolExecutions: items.filter(i => i.type === 'tool_execution').length
-    })
-    
+
     return items
   }, [messages, toolExecutions, pendingToolCall, pending, lastMessage, isLastMessageStreaming, useEnhancedToolDisplay])
 

@@ -63,6 +63,7 @@ export interface UseToolChatResult {
   handleToolApprove: (id: string, modifiedArgs?: Record<string, unknown>) => Promise<string>
   handleToolReject: (id: string) => void
   clearPendingTool: () => void
+  clearToolExecutions: () => void
   getToolResultContext: () => string
   // Memory pre-fetch for session start (uses ArborMemoryService)
   fetchMemoryContext: (conversationId?: string, projectPath?: string) => Promise<MemoryFetchResult>
@@ -74,7 +75,7 @@ let toolIdCounter = 0
 
 export function useToolChat(): UseToolChatResult {
   const { connected, systemPrompt } = useMCP()
-  const { executeTool, toolExecutions, isProcessingTool, getToolResultsForContext } = useMCPTools()
+  const { executeTool, toolExecutions, isProcessingTool, getToolResultsForContext, clearExecutions } = useMCPTools()
 
   const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null)
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus>('idle')
@@ -304,6 +305,7 @@ ${systemPrompt}`
     handleToolApprove,
     handleToolReject,
     clearPendingTool,
+    clearToolExecutions: clearExecutions,
     getToolResultContext,
     fetchMemoryContext,
     resetMemoryStatus,

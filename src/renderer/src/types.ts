@@ -24,6 +24,43 @@ export interface Model {
   isLocal: boolean
 }
 
+export type ProviderValidationStatus =
+  | 'ok'
+  | 'invalid_key'
+  | 'insufficient_scope'
+  | 'network_error'
+  | 'rate_limited'
+
+export interface ProviderValidationResult {
+  status: ProviderValidationStatus
+  message?: string
+}
+
+export type ProviderDiscoveryStatus = 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+
+export interface ProviderModelState {
+  providerId: string
+  status: ProviderDiscoveryStatus
+  modelCount: number
+  lastRefreshAt?: number
+  message?: string
+}
+
+export interface ModelCatalog {
+  models: Model[]
+  providerStates: Record<string, ProviderModelState>
+  refreshedAt: number
+}
+
+export interface EnsureUsableModelResult {
+  usable: boolean
+  requestedModelId: string
+  resolvedModelId: string | null
+  providerId: string | null
+  switched: boolean
+  reason?: string
+}
+
 /**
  * Provider metadata for UI display
  */
@@ -49,7 +86,7 @@ export const PROVIDERS: ProviderInfo[] = [
     description: 'Claude Opus 4.5, Sonnet 4.5 - Advanced reasoning',
     isLocal: false,
     requiresApiKey: true,
-    helpUrl: 'https://console.anthropic.com/settings/keys',
+    helpUrl: 'https://platform.claude.com/settings/keys',
     placeholder: 'sk-ant-api...'
   },
   {
@@ -76,11 +113,11 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'github',
     name: 'GitHub Copilot',
     icon: '🐙',
-    description: 'GPT-4o, Llama, Mistral via GitHub Models',
+    description: 'GPT-5.1 via GitHub Models',
     isLocal: false,
     requiresApiKey: true,
     helpUrl: 'https://github.com/settings/tokens',
-    placeholder: 'ghp_...'
+    placeholder: 'ghp_... or github_pat_...'
   },
   {
     id: 'gemini',
@@ -127,51 +164,9 @@ export const ANTHROPIC_MODELS: Model[] = [
  */
 export const GITHUB_COPILOT_MODELS: Model[] = [
   {
-    id: 'github:openai/gpt-4o',
-    name: 'GPT-4o (GitHub)',
-    description: 'OpenAI GPT-4o via GitHub Models',
-    provider: 'github',
-    isLocal: false
-  },
-  {
-    id: 'github:openai/gpt-4o-mini',
-    name: 'GPT-4o Mini (GitHub)',
-    description: 'Fast & cost-effective via GitHub',
-    provider: 'github',
-    isLocal: false
-  },
-  {
-    id: 'github:openai/o1',
-    name: 'OpenAI o1 (GitHub)',
-    description: 'Advanced reasoning model',
-    provider: 'github',
-    isLocal: false
-  },
-  {
-    id: 'github:openai/o1-mini',
-    name: 'OpenAI o1-mini (GitHub)',
-    description: 'Fast reasoning model',
-    provider: 'github',
-    isLocal: false
-  },
-  {
-    id: 'github:meta/llama-3.3-70b-instruct',
-    name: 'Llama 3.3 70B (GitHub)',
-    description: 'Meta Llama 3.3 70B instruction-tuned',
-    provider: 'github',
-    isLocal: false
-  },
-  {
-    id: 'github:mistral-ai/mistral-large-2411',
-    name: 'Mistral Large (GitHub)',
-    description: 'Mistral AI flagship model',
-    provider: 'github',
-    isLocal: false
-  },
-  {
-    id: 'github:deepseek/deepseek-r1',
-    name: 'DeepSeek R1 (GitHub)',
-    description: 'Advanced reasoning model',
+    id: 'github:openai/gpt-5.1',
+    name: 'GPT-5.1 (GitHub)',
+    description: 'OpenAI GPT-5.1 via GitHub Models',
     provider: 'github',
     isLocal: false
   }

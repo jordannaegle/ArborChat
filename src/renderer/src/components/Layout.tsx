@@ -215,7 +215,7 @@ export function Layout({
             />
 
             {/* Thread panel */}
-            <div className="relative z-20">
+            <div className="absolute inset-y-0 right-0 z-20">
               <ThreadPanel
                 rootMessage={rootMessage}
                 messages={threadMessages}

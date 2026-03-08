@@ -770,7 +770,43 @@ interface CredentialsAPI {
   getKey: (providerId: string) => Promise<string | null>
   setKey: (providerId: string, apiKey: string) => Promise<{ success: boolean }>
   deleteKey: (providerId: string) => Promise<{ success: boolean }>
-  validateKey: (providerId: string, apiKey: string) => Promise<boolean>
+  validateKey: (
+    providerId: string,
+    apiKey: string
+  ) => Promise<{
+    status: 'ok' | 'invalid_key' | 'insufficient_scope' | 'network_error' | 'rate_limited'
+    message?: string
+  }>
+}
+
+interface ProviderModelState {
+  providerId: string
+  status: 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+  modelCount: number
+  lastRefreshAt?: number
+  message?: string
+}
+
+interface ModelCatalog {
+  models: import('../renderer/src/types').Model[]
+  providerStates: Record<string, ProviderModelState>
+  refreshedAt: number
+}
+
+interface EnsureUsableModelResult {
+  usable: boolean
+  requestedModelId: string
+  resolvedModelId: string | null
+  providerId: string | null
+  switched: boolean
+  reason?: string
+}
+
+interface ModelsAPI {
+  getCatalog: () => Promise<ModelCatalog>
+  refreshProvider: (providerId: string) => Promise<ModelCatalog>
+  ensureUsable: (modelId: string) => Promise<EnsureUsableModelResult>
+  onUpdated: (callback: (catalog: ModelCatalog) => void) => () => void
 }
 
 // Git API Types
@@ -922,6 +958,7 @@ declare global {
       // Theme API - Update dock icon based on theme
       setDockIcon: (themeId: string) => Promise<boolean>
       getAvailableModels: (apiKey?: string) => Promise<import('../renderer/src/types').Model[]>
+      models: ModelsAPI
       checkOllamaConnection: () => Promise<boolean>
       askAI: (apiKey: string, messages: any[], model: string) => void
       onToken: (callback: (token: string) => void) => void

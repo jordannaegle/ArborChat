@@ -4,36 +4,46 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { AIProvider } from './base'
-import { AIModel, StreamParams } from './types'
+import { AIModel, ModelProbeResult, ProviderValidationResult, StreamParams } from './types'
 import { toAnthropicTools } from './toolFormatter'
 import { mcpManager } from '../mcp/manager'
 
 /**
  * Available Anthropic Claude models
  */
-const ANTHROPIC_MODELS: AIModel[] = [
-  {
-    id: 'claude-opus-4-5-20251101',
+const ANTHROPIC_MODEL_LABELS: Record<string, { name: string; description: string }> = {
+  'claude-opus-4-5-20251101': {
     name: 'Claude Opus 4.5',
-    description: 'Most intelligent - Complex reasoning & analysis',
-    provider: 'anthropic',
-    isLocal: false
+    description: 'Most intelligent for complex reasoning'
   },
-  {
-    id: 'claude-sonnet-4-5-20250929',
+  'claude-sonnet-4-5-20250929': {
     name: 'Claude Sonnet 4.5',
-    description: 'Balanced - Fast & capable',
-    provider: 'anthropic',
-    isLocal: false
+    description: 'Balanced speed and quality'
   },
-  {
-    id: 'claude-haiku-4-5-20251001',
+  'claude-haiku-4-5-20251001': {
     name: 'Claude Haiku 4.5',
-    description: 'Fast & efficient',
+    description: 'Fast and efficient'
+  }
+}
+
+function toAnthropicModel(modelId: string): AIModel {
+  const known = ANTHROPIC_MODEL_LABELS[modelId]
+  return {
+    id: modelId,
+    name: known?.name || modelId.replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase()),
+    description: known?.description || 'Anthropic Claude model',
     provider: 'anthropic',
     isLocal: false
   }
-]
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const status = (error as { status?: unknown }).status
+    return typeof status === 'number' ? status : undefined
+  }
+  return undefined
+}
 
 /**
  * Anthropic Claude AI Provider implementation
@@ -46,40 +56,101 @@ export class AnthropicProvider implements AIProvider {
    * Check if this provider can handle the given model
    */
   canHandleModel(modelId: string): boolean {
-    return ANTHROPIC_MODELS.some((m) => m.id === modelId) || modelId.startsWith('claude-')
+    return modelId.startsWith('claude-')
   }
 
   /**
    * Validate connection with Anthropic API
    */
-  async validateConnection(apiKey?: string): Promise<boolean> {
-    if (!apiKey) {
-      console.error('[Anthropic] No API key provided')
-      return false
+  async validateConnection(apiKey?: string): Promise<ProviderValidationResult> {
+    const trimmedKey = apiKey?.trim()
+    if (!trimmedKey) {
+      return { status: 'invalid_key', message: 'No API key provided' }
     }
 
     console.log('[Anthropic] validateConnection called')
     try {
-      const client = new Anthropic({ apiKey })
-      // Use a minimal API call to validate
-      await client.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 10,
-        messages: [{ role: 'user', content: 'Hi' }]
-      })
+      const client = new Anthropic({ apiKey: trimmedKey })
+
+      // Validate credentials with a lightweight auth check that does not depend
+      // on access to any specific Claude model.
+      await client.models.list({ limit: 1 })
+
       console.log('[Anthropic] Validation successful!')
-      return true
+      return { status: 'ok' }
     } catch (error: unknown) {
       console.error('[Anthropic] validateConnection ERROR:', error)
-      return false
+      const status = getErrorStatus(error)
+      if (status === 401) {
+        return { status: 'invalid_key', message: 'Anthropic API key is invalid or expired' }
+      }
+      if (status === 403) {
+        return { status: 'insufficient_scope', message: 'Anthropic account lacks required access' }
+      }
+      if (status === 429) {
+        return { status: 'rate_limited', message: 'Anthropic validation hit rate limits' }
+      }
+      return { status: 'network_error', message: 'Unable to reach Anthropic right now' }
     }
   }
 
   /**
    * Get available Anthropic models
    */
-  async getAvailableModels(_apiKey?: string): Promise<AIModel[]> {
-    return ANTHROPIC_MODELS
+  async getAvailableModels(apiKey?: string): Promise<AIModel[]> {
+    const trimmedKey = apiKey?.trim()
+    if (!trimmedKey) {
+      return []
+    }
+    return this.listCandidateModels(trimmedKey)
+  }
+
+  async listCandidateModels(apiKey: string): Promise<AIModel[]> {
+    try {
+      const client = new Anthropic({ apiKey })
+      const response = await client.models.list({ limit: 100 })
+      return response.data
+        .map((model) => model.id)
+        .filter((id): id is string => typeof id === 'string' && id.startsWith('claude-'))
+        .map((id) => toAnthropicModel(id))
+    } catch (error: unknown) {
+      const status = getErrorStatus(error)
+      if (status === 401 || status === 403) {
+        return []
+      }
+      console.error('[Anthropic] getAvailableModels ERROR:', error)
+      return []
+    }
+  }
+
+  async probeModelAccess(model: AIModel, apiKey: string): Promise<ModelProbeResult> {
+    try {
+      const client = new Anthropic({ apiKey })
+      await client.messages.create({
+        model: model.id,
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'ping' }]
+      })
+      return { status: 'verified' }
+    } catch (error: unknown) {
+      const status = getErrorStatus(error)
+      if (status === 401) {
+        return { status: 'denied', code: 'invalid_key', message: 'Invalid Anthropic API key' }
+      }
+      if (status === 403) {
+        return { status: 'denied', code: 'insufficient_scope', message: `No access to ${model.id}` }
+      }
+      if (status === 429) {
+        return { status: 'transient_error', code: 'rate_limited', message: 'Rate limited probing model access' }
+      }
+      if (status && status >= 500) {
+        return { status: 'transient_error', code: 'provider_error', message: 'Anthropic service unavailable' }
+      }
+      if (status === 400 || status === 404) {
+        return { status: 'denied', code: 'unsupported', message: `${model.id} is not usable for chat` }
+      }
+      return { status: 'transient_error', code: 'network_error', message: 'Network error probing model access' }
+    }
   }
 
   /**

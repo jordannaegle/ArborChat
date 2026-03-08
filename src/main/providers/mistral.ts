@@ -2,63 +2,70 @@
 
 import { Mistral } from '@mistralai/mistralai'
 import { AIProvider } from './base'
-import { AIModel, StreamParams } from './types'
+import { AIModel, ModelProbeResult, ProviderValidationResult, StreamParams } from './types'
 
 /**
  * Available Mistral AI models
  * Ordered by capability: flagship first, then specialized models
  */
-const MISTRAL_MODELS: AIModel[] = [
-  {
-    id: 'mistral-large-latest',
+const MISTRAL_MODEL_LABELS: Record<string, { name: string; description: string }> = {
+  'mistral-large-latest': {
     name: 'Mistral Large',
-    description: 'Flagship model - Complex reasoning & analysis',
-    provider: 'mistral',
-    isLocal: false
+    description: 'Flagship model for complex reasoning'
   },
-  {
-    id: 'mistral-medium-latest',
+  'mistral-medium-latest': {
     name: 'Mistral Medium',
-    description: 'Balanced - Cost-effective reasoning',
-    provider: 'mistral',
-    isLocal: false
+    description: 'Balanced and cost-effective'
   },
-  {
-    id: 'mistral-small-latest',
+  'mistral-small-latest': {
     name: 'Mistral Small',
-    description: 'Fast & efficient for simple tasks',
-    provider: 'mistral',
-    isLocal: false
+    description: 'Fast and efficient'
   },
-  {
-    id: 'codestral-latest',
+  'codestral-latest': {
     name: 'Codestral',
-    description: 'Specialized for code generation & understanding',
-    provider: 'mistral',
-    isLocal: false
+    description: 'Specialized for code generation'
   },
-  {
-    id: 'ministral-8b-latest',
+  'ministral-8b-latest': {
     name: 'Ministral 8B',
-    description: 'Compact model for edge deployment',
-    provider: 'mistral',
-    isLocal: false
+    description: 'Compact model option'
   },
-  {
-    id: 'ministral-3b-latest',
+  'ministral-3b-latest': {
     name: 'Ministral 3B',
-    description: 'Smallest model - Ultra-fast responses',
-    provider: 'mistral',
-    isLocal: false
+    description: 'Small, low-latency model'
   },
-  {
-    id: 'pixtral-large-latest',
+  'pixtral-large-latest': {
     name: 'Pixtral Large',
-    description: 'Multimodal - Vision & text understanding',
+    description: 'Vision and text multimodal model'
+  }
+}
+
+function isCandidateMistralModelId(modelId: string): boolean {
+  return (
+    modelId.startsWith('mistral-') ||
+    modelId.startsWith('codestral-') ||
+    modelId.startsWith('ministral-') ||
+    modelId.startsWith('pixtral-')
+  )
+}
+
+function toMistralModel(modelId: string): AIModel {
+  const known = MISTRAL_MODEL_LABELS[modelId]
+  return {
+    id: modelId,
+    name: known?.name || modelId.replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase()),
+    description: known?.description || 'Mistral chat-capable model',
     provider: 'mistral',
     isLocal: false
   }
-]
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const status = (error as { status?: unknown }).status
+    return typeof status === 'number' ? status : undefined
+  }
+  return undefined
+}
 
 /**
  * Mistral AI Provider implementation
@@ -72,34 +79,27 @@ export class MistralProvider implements AIProvider {
    * Matches mistral-*, codestral-*, ministral-*, pixtral-* patterns
    */
   canHandleModel(modelId: string): boolean {
-    return (
-      MISTRAL_MODELS.some((m) => m.id === modelId) ||
-      modelId.startsWith('mistral-') ||
-      modelId.startsWith('codestral-') ||
-      modelId.startsWith('ministral-') ||
-      modelId.startsWith('pixtral-')
-    )
+    return isCandidateMistralModelId(modelId)
   }
 
   /**
    * Validate connection with Mistral API
    */
-  async validateConnection(apiKey?: string): Promise<boolean> {
-    if (!apiKey) {
-      console.error('[Mistral] No API key provided')
-      return false
+  async validateConnection(apiKey?: string): Promise<ProviderValidationResult> {
+    const trimmedKey = apiKey?.trim()
+    if (!trimmedKey) {
+      return { status: 'invalid_key', message: 'No API key provided' }
     }
 
     console.log('[Mistral] validateConnection called')
-    console.log('[Mistral] API key length:', apiKey.length)
 
     try {
-      const client = new Mistral({ apiKey })
+      const client = new Mistral({ apiKey: trimmedKey })
 
       // Use models.list() for lighter validation instead of chat.complete()
       const models = await client.models.list()
       console.log('[Mistral] Validation successful! Available models:', models.data?.length || 0)
-      return true
+      return { status: 'ok' }
     } catch (error: unknown) {
       // Log detailed error information
       console.error('[Mistral] validateConnection ERROR:', error)
@@ -111,24 +111,89 @@ export class MistralProvider implements AIProvider {
         // Check for common Mistral API errors
         if (error.message.includes('401') || error.message.includes('Unauthorized')) {
           console.error('[Mistral] Authentication failed - check API key and ensure payments are activated')
+          return { status: 'invalid_key', message: 'Mistral API key is invalid or expired' }
         } else if (error.message.includes('403') || error.message.includes('Forbidden')) {
           console.error('[Mistral] Access forbidden - API key may not have required permissions')
+          return { status: 'insufficient_scope', message: 'Mistral API key lacks required access' }
+        } else if (error.message.includes('429') || error.message.includes('Too Many Requests')) {
+          return { status: 'rate_limited', message: 'Mistral validation hit rate limits' }
         } else if (error.message.includes('payment') || error.message.includes('billing')) {
           console.error('[Mistral] Payment/billing issue - activate payments at console.mistral.ai')
+          return { status: 'insufficient_scope', message: 'Mistral billing is not enabled for this key' }
         }
       }
       
-      return false
+      const status = getErrorStatus(error)
+      if (status === 401) {
+        return { status: 'invalid_key', message: 'Mistral API key is invalid or expired' }
+      }
+      if (status === 403) {
+        return { status: 'insufficient_scope', message: 'Mistral API key lacks required access' }
+      }
+      if (status === 429) {
+        return { status: 'rate_limited', message: 'Mistral validation hit rate limits' }
+      }
+      return { status: 'network_error', message: 'Unable to reach Mistral right now' }
     }
   }
 
   /**
    * Get available Mistral models
    */
-  async getAvailableModels(_apiKey?: string): Promise<AIModel[]> {
-    // Return static list of models
-    // Mistral models are well-defined and don't require dynamic fetching
-    return MISTRAL_MODELS
+  async getAvailableModels(apiKey?: string): Promise<AIModel[]> {
+    const trimmedKey = apiKey?.trim()
+    if (!trimmedKey) {
+      return []
+    }
+    return this.listCandidateModels(trimmedKey)
+  }
+
+  async listCandidateModels(apiKey: string): Promise<AIModel[]> {
+    try {
+      const client = new Mistral({ apiKey })
+      const response = await client.models.list()
+      return (response.data || [])
+        .map((model) => model.id)
+        .filter((id): id is string => typeof id === 'string' && isCandidateMistralModelId(id))
+        .map((id) => toMistralModel(id))
+    } catch (error: unknown) {
+      const status = getErrorStatus(error)
+      if (status === 401 || status === 403) {
+        return []
+      }
+      console.error('[Mistral] getAvailableModels ERROR:', error)
+      return []
+    }
+  }
+
+  async probeModelAccess(model: AIModel, apiKey: string): Promise<ModelProbeResult> {
+    try {
+      const client = new Mistral({ apiKey })
+      await client.chat.complete({
+        model: model.id,
+        maxTokens: 1,
+        messages: [{ role: 'user', content: 'ping' }]
+      })
+      return { status: 'verified' }
+    } catch (error: unknown) {
+      const status = getErrorStatus(error)
+      if (status === 401) {
+        return { status: 'denied', code: 'invalid_key', message: 'Invalid Mistral API key' }
+      }
+      if (status === 403) {
+        return { status: 'denied', code: 'insufficient_scope', message: `No access to ${model.id}` }
+      }
+      if (status === 429) {
+        return { status: 'transient_error', code: 'rate_limited', message: 'Rate limited probing model access' }
+      }
+      if (status && status >= 500) {
+        return { status: 'transient_error', code: 'provider_error', message: 'Mistral service unavailable' }
+      }
+      if (status === 400 || status === 404) {
+        return { status: 'denied', code: 'unsupported', message: `${model.id} is not usable for chat` }
+      }
+      return { status: 'transient_error', code: 'network_error', message: 'Network error probing model access' }
+    }
   }
 
   /**

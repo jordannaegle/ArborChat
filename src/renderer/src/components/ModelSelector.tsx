@@ -1,6 +1,6 @@
 import { ChevronDown, Loader2, AlertCircle } from 'lucide-react'
-import { useState, useRef, useEffect } from 'react'
-import { Model, GEMINI_MODELS } from '../types'
+import { useState, useRef, useEffect, useCallback, type ComponentType } from 'react'
+import { Model, ModelCatalog, ProviderModelState, ModelProvider } from '../types'
 import { cn } from '../lib/utils'
 import {
   ClaudeIcon,
@@ -17,10 +17,14 @@ interface ModelSelectorProps {
   disabled?: boolean
 }
 
-/**
- * Model provider groupings with icons and labels
- */
-const PROVIDER_GROUPS = {
+const PROVIDER_GROUPS: Record<
+  ModelProvider,
+  {
+    icon: ComponentType<{ size?: number; className?: string }>
+    iconClass: string
+    label: string
+  }
+> = {
   anthropic: {
     icon: ClaudeIcon,
     iconClass: 'text-[#D97757]',
@@ -51,71 +55,181 @@ const PROVIDER_GROUPS = {
     iconClass: 'text-white',
     label: 'Local (Ollama)'
   }
-} as const
+}
+
+const PROVIDER_ORDER: ModelProvider[] = [
+  'anthropic',
+  'openai',
+  'mistral',
+  'github',
+  'gemini',
+  'ollama'
+]
 
 export function ModelSelector({ selectedModel, onModelChange, disabled }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [models, setModels] = useState<Model[]>(GEMINI_MODELS)
+  const [models, setModels] = useState<Model[]>([])
+  const [providerStates, setProviderStates] = useState<Record<string, ProviderModelState>>({})
   const [loading, setLoading] = useState(false)
-  const [ollamaOnline, setOllamaOnline] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const currentModel = models.find((m) => m.id === selectedModel) ?? models[0]
+  const currentModel = models.find((m) => m.id === selectedModel) ?? null
 
-  // Fetch models on mount
-  useEffect(() => {
-    fetchModels()
-  }, [])
+  const applyCatalog = useCallback(
+    async (catalog: ModelCatalog) => {
+      const availableModels = catalog.models || []
+      setModels(availableModels)
+      setProviderStates(catalog.providerStates || {})
 
-  async function fetchModels() {
+      if (availableModels.length === 0) {
+        return
+      }
+
+      if (!availableModels.some((model) => model.id === selectedModel)) {
+        const configuredProviders = await window.api.credentials.getConfigured()
+        const fallbackModel =
+          availableModels.find(
+            (model) => model.provider === 'ollama' || configuredProviders[model.provider] === true
+          ) || availableModels[0]
+
+        if (fallbackModel && fallbackModel.id !== selectedModel) {
+          onModelChange(fallbackModel.id)
+        }
+      }
+    },
+    [onModelChange, selectedModel]
+  )
+
+  const fetchCatalog = useCallback(async () => {
     setLoading(true)
     try {
-      const apiKey = await window.api.getApiKey()
-      const availableModels = await window.api.getAvailableModels(apiKey)
-
-      if (availableModels && availableModels.length > 0) {
-        setModels(availableModels)
-
-        // Check if any Ollama models are present
-        const hasOllama = availableModels.some((m: Model) => m.provider === 'ollama')
-        setOllamaOnline(hasOllama)
-      }
+      const catalog = await window.api.models.getCatalog()
+      await applyCatalog(catalog)
     } catch (error) {
-      console.error('[ModelSelector] Failed to fetch models:', error)
-      // Fallback to Gemini models only
-      setModels(GEMINI_MODELS)
-      setOllamaOnline(false)
+      console.error('[ModelSelector] Failed to fetch model catalog:', error)
+      setModels([])
     } finally {
       setLoading(false)
     }
-  }
+  }, [applyCatalog])
 
-  // Close on outside click
+  useEffect(() => {
+    fetchCatalog()
+
+    const unsubscribe = window.api.models.onUpdated((catalog) => {
+      void applyCatalog(catalog)
+    })
+
+    return () => {
+      unsubscribe()
+    }
+  }, [fetchCatalog, applyCatalog])
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchCatalog()
+    }
+  }, [isOpen, fetchCatalog])
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false)
       }
     }
+
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Group models by provider
-  const anthropicModels = models.filter((m) => m.provider === 'anthropic')
-  const openaiModels = models.filter((m) => m.provider === 'openai')
-  const mistralModels = models.filter((m) => m.provider === 'mistral')
-  const githubModels = models.filter((m) => m.provider === 'github')
-  const geminiModels = models.filter((m) => m.provider === 'gemini')
-  const ollamaModels = models.filter((m) => m.provider === 'ollama')
+  const groupedModels: Record<ModelProvider, Model[]> = {
+    anthropic: models.filter((m) => m.provider === 'anthropic'),
+    openai: models.filter((m) => m.provider === 'openai'),
+    mistral: models.filter((m) => m.provider === 'mistral'),
+    github: models.filter((m) => m.provider === 'github'),
+    gemini: models.filter((m) => m.provider === 'gemini'),
+    ollama: models.filter((m) => m.provider === 'ollama')
+  }
 
-  // Get icon for current model
-  const getProviderIcon = (provider: string) => {
-    const group = PROVIDER_GROUPS[provider as keyof typeof PROVIDER_GROUPS]
+  const getProviderIcon = (provider?: ModelProvider) => {
+    const group = provider ? PROVIDER_GROUPS[provider] : undefined
     if (!group) return <GeminiIcon size={16} className="text-[#4285F4]" />
     const Icon = group.icon
     return <Icon size={16} className={group.iconClass} />
   }
+
+  const renderProviderStatus = (provider: ModelProvider) => {
+    const state = providerStates[provider]
+    if (!state || groupedModels[provider].length > 0) {
+      return null
+    }
+
+    if (state.status === 'refreshing') {
+      return (
+        <div key={`${provider}-loading`} className="px-4 py-3 border-b border-tertiary/50">
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <Loader2 size={12} className="animate-spin" />
+            Checking available {PROVIDER_GROUPS[provider].label} models...
+          </div>
+        </div>
+      )
+    }
+
+    if (state.status === 'error') {
+      return (
+        <div key={`${provider}-error`} className="px-4 py-3 border-b border-tertiary/50">
+          <div className="text-xs text-red-400">{state.message || `Unable to load ${PROVIDER_GROUPS[provider].label} models`}</div>
+        </div>
+      )
+    }
+
+    return null
+  }
+
+  const renderModelSection = (provider: ModelProvider) => {
+    const providerModels = groupedModels[provider]
+    if (providerModels.length === 0) {
+      return null
+    }
+
+    const { icon: Icon, iconClass, label } = PROVIDER_GROUPS[provider]
+
+    return (
+      <div key={provider}>
+        <div className="px-4 py-2 bg-tertiary/30 border-b border-tertiary">
+          <div className="flex items-center gap-2">
+            <Icon size={14} className={iconClass} />
+            <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</span>
+          </div>
+        </div>
+
+        {providerModels.map((model) => (
+          <button
+            key={model.id}
+            onClick={() => {
+              onModelChange(model.id)
+              setIsOpen(false)
+            }}
+            className={cn(
+              'w-full px-4 py-3 text-left hover:bg-tertiary/50 transition-colors',
+              model.id === selectedModel && 'bg-primary/10 border-l-2 border-primary'
+            )}
+          >
+            <div className="text-sm font-medium text-white">{model.name}</div>
+            <div className="text-xs text-text-muted">{model.description}</div>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  const ollamaState = providerStates.ollama
+  const hasCloudModels =
+    groupedModels.anthropic.length > 0 ||
+    groupedModels.openai.length > 0 ||
+    groupedModels.mistral.length > 0 ||
+    groupedModels.github.length > 0 ||
+    groupedModels.gemini.length > 0
 
   return (
     <div ref={dropdownRef} className="relative">
@@ -130,8 +244,10 @@ export function ModelSelector({ selectedModel, onModelChange, disabled }: ModelS
           disabled && 'opacity-50 cursor-not-allowed'
         )}
       >
-        {getProviderIcon(currentModel.provider)}
-        <span className="text-sm font-medium flex-1 text-left">{currentModel.name}</span>
+        {getProviderIcon(currentModel?.provider)}
+        <span className="text-sm font-medium flex-1 text-left">
+          {currentModel?.name || (loading ? 'Loading models...' : 'No available models')}
+        </span>
         {loading ? (
           <Loader2 size={14} className="animate-spin text-text-muted" />
         ) : (
@@ -144,194 +260,22 @@ export function ModelSelector({ selectedModel, onModelChange, disabled }: ModelS
 
       {isOpen && (
         <div className="absolute bottom-full left-0 right-0 mb-2 bg-secondary border border-tertiary rounded-lg shadow-xl z-50 overflow-hidden max-h-96 overflow-y-auto">
-          {/* Anthropic Claude Models Section */}
-          {anthropicModels.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-tertiary/30 border-b border-tertiary">
-                <div className="flex items-center gap-2">
-                  <ClaudeIcon size={14} className="text-[#D97757]" />
-                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                    Anthropic Claude
-                  </span>
-                </div>
-              </div>
-              {anthropicModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onModelChange(model.id)
-                    setIsOpen(false)
-                  }}
-                  className={cn(
-                    'w-full px-4 py-3 text-left hover:bg-tertiary/50 transition-colors',
-                    model.id === selectedModel && 'bg-primary/10 border-l-2 border-primary'
-                  )}
-                >
-                  <div className="text-sm font-medium text-white">{model.name}</div>
-                  <div className="text-xs text-text-muted">{model.description}</div>
-                </button>
-              ))}
-            </>
+          {PROVIDER_ORDER.map((provider) => renderProviderStatus(provider))}
+          {PROVIDER_ORDER.map((provider) => renderModelSection(provider))}
+
+          {models.length === 0 && (
+            <div className="px-4 py-4 text-xs text-text-muted">
+              No verified models found for the configured providers. Add a token and wait for model discovery.
+            </div>
           )}
 
-          {/* OpenAI Models Section */}
-          {openaiModels.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-tertiary/30 border-b border-tertiary">
-                <div className="flex items-center gap-2">
-                  <OpenAIIcon size={14} className="text-[#10A37F]" />
-                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                    OpenAI
-                  </span>
-                </div>
-              </div>
-              {openaiModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onModelChange(model.id)
-                    setIsOpen(false)
-                  }}
-                  className={cn(
-                    'w-full px-4 py-3 text-left hover:bg-tertiary/50 transition-colors',
-                    model.id === selectedModel && 'bg-primary/10 border-l-2 border-primary'
-                  )}
-                >
-                  <div className="text-sm font-medium text-white">{model.name}</div>
-                  <div className="text-xs text-text-muted">{model.description}</div>
-                </button>
-              ))}
-            </>
-          )}
-
-          {/* Mistral AI Models Section */}
-          {mistralModels.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-tertiary/30 border-b border-tertiary">
-                <div className="flex items-center gap-2">
-                  <MistralIcon size={14} className="text-[#F7931A]" />
-                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                    Mistral AI
-                  </span>
-                </div>
-              </div>
-              {mistralModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onModelChange(model.id)
-                    setIsOpen(false)
-                  }}
-                  className={cn(
-                    'w-full px-4 py-3 text-left hover:bg-tertiary/50 transition-colors',
-                    model.id === selectedModel && 'bg-primary/10 border-l-2 border-primary'
-                  )}
-                >
-                  <div className="text-sm font-medium text-white">{model.name}</div>
-                  <div className="text-xs text-text-muted">{model.description}</div>
-                </button>
-              ))}
-            </>
-          )}
-
-          {/* GitHub Copilot Models Section */}
-          {githubModels.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-tertiary/30 border-b border-tertiary">
-                <div className="flex items-center gap-2">
-                  <GitHubCopilotIcon size={14} className="text-[#8B5CF6]" />
-                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                    GitHub Copilot
-                  </span>
-                </div>
-              </div>
-              {githubModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onModelChange(model.id)
-                    setIsOpen(false)
-                  }}
-                  className={cn(
-                    'w-full px-4 py-3 text-left hover:bg-tertiary/50 transition-colors',
-                    model.id === selectedModel && 'bg-primary/10 border-l-2 border-primary'
-                  )}
-                >
-                  <div className="text-sm font-medium text-white">{model.name}</div>
-                  <div className="text-xs text-text-muted">{model.description}</div>
-                </button>
-              ))}
-            </>
-          )}
-
-          {/* Gemini Models Section */}
-          {geminiModels.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-tertiary/30 border-b border-tertiary">
-                <div className="flex items-center gap-2">
-                  <GeminiIcon size={14} className="text-[#4285F4]" />
-                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                    Google Gemini
-                  </span>
-                </div>
-              </div>
-              {geminiModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onModelChange(model.id)
-                    setIsOpen(false)
-                  }}
-                  className={cn(
-                    'w-full px-4 py-3 text-left hover:bg-tertiary/50 transition-colors',
-                    model.id === selectedModel && 'bg-primary/10 border-l-2 border-primary'
-                  )}
-                >
-                  <div className="text-sm font-medium text-white">{model.name}</div>
-                  <div className="text-xs text-text-muted">{model.description}</div>
-                </button>
-              ))}
-            </>
-          )}
-
-          {/* Local Models Section (Ollama) */}
-          {ollamaModels.length > 0 && (
-            <>
-              <div className="px-4 py-2 bg-tertiary/30 border-b border-tertiary">
-                <div className="flex items-center gap-2">
-                  <OllamaIcon size={14} className="text-white" />
-                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                    Local Models (Ollama)
-                  </span>
-                </div>
-              </div>
-              {ollamaModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    onModelChange(model.id)
-                    setIsOpen(false)
-                  }}
-                  className={cn(
-                    'w-full px-4 py-3 text-left hover:bg-tertiary/50 transition-colors',
-                    model.id === selectedModel && 'bg-primary/10 border-l-2 border-primary'
-                  )}
-                >
-                  <div className="text-sm font-medium text-white">{model.name}</div>
-                  <div className="text-xs text-text-muted">{model.description}</div>
-                </button>
-              ))}
-            </>
-          )}
-
-          {/* Ollama Offline Message */}
-          {!ollamaOnline && (geminiModels.length > 0 || anthropicModels.length > 0) && (
+          {hasCloudModels && groupedModels.ollama.length === 0 && ollamaState?.status === 'error' && (
             <div className="px-4 py-3 bg-tertiary/20 border-t border-tertiary">
               <div className="flex items-start gap-2">
                 <AlertCircle size={14} className="text-yellow-500 mt-0.5 flex-shrink-0" />
                 <div className="text-xs text-text-muted">
                   <div className="font-medium text-yellow-500">Ollama not detected</div>
-                  <div className="mt-1">Install Ollama to use local models</div>
+                  <div className="mt-1">Install and run Ollama to use local models</div>
                 </div>
               </div>
             </div>

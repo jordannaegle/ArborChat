@@ -31,6 +31,28 @@ export interface Conversation {
   updated_at: string
 }
 
+export interface ModelAccessCacheRow {
+  provider_id: string
+  token_fingerprint: string
+  model_id: string
+  display_name: string
+  description: string
+  status: 'verified' | 'denied' | 'transient_error' | 'stale'
+  last_checked_at: number
+  expires_at: number
+  deny_code: string | null
+  deny_message: string | null
+}
+
+export interface ProviderDiscoveryStateRow {
+  provider_id: string
+  token_fingerprint: string
+  last_refresh_at: number
+  refresh_status: 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+  error_code: string | null
+  error_message: string | null
+}
+
 export function initDB(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -52,9 +74,187 @@ export function initDB(): void {
         key TEXT PRIMARY KEY,
         value TEXT
     );
+    CREATE TABLE IF NOT EXISTS model_access_cache (
+      provider_id TEXT NOT NULL,
+      token_fingerprint TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('verified', 'denied', 'transient_error', 'stale')),
+      last_checked_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      deny_code TEXT,
+      deny_message TEXT,
+      PRIMARY KEY (provider_id, token_fingerprint, model_id)
+    );
+    CREATE TABLE IF NOT EXISTS provider_discovery_state (
+      provider_id TEXT NOT NULL,
+      token_fingerprint TEXT NOT NULL,
+      last_refresh_at INTEGER NOT NULL,
+      refresh_status TEXT NOT NULL CHECK(refresh_status IN ('idle', 'refreshing', 'ready', 'no_key', 'error')),
+      error_code TEXT,
+      error_message TEXT,
+      PRIMARY KEY (provider_id, token_fingerprint)
+    );
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id);
+    CREATE INDEX IF NOT EXISTS idx_model_access_provider_token ON model_access_cache(provider_id, token_fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_model_access_provider_token_status ON model_access_cache(provider_id, token_fingerprint, status);
+    CREATE INDEX IF NOT EXISTS idx_model_access_expires ON model_access_cache(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_provider_discovery_provider_token ON provider_discovery_state(provider_id, token_fingerprint);
   `)
+}
+
+export function upsertModelAccessCache(row: ModelAccessCacheRow): void {
+  db.prepare(
+    `INSERT INTO model_access_cache (
+      provider_id, token_fingerprint, model_id, display_name, description,
+      status, last_checked_at, expires_at, deny_code, deny_message
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(provider_id, token_fingerprint, model_id)
+    DO UPDATE SET
+      display_name = excluded.display_name,
+      description = excluded.description,
+      status = excluded.status,
+      last_checked_at = excluded.last_checked_at,
+      expires_at = excluded.expires_at,
+      deny_code = excluded.deny_code,
+      deny_message = excluded.deny_message`
+  ).run(
+    row.provider_id,
+    row.token_fingerprint,
+    row.model_id,
+    row.display_name,
+    row.description,
+    row.status,
+    row.last_checked_at,
+    row.expires_at,
+    row.deny_code,
+    row.deny_message
+  )
+}
+
+export function getModelAccessCacheRows(
+  providerId: string,
+  tokenFingerprint: string
+): ModelAccessCacheRow[] {
+  return db
+    .prepare(
+      `SELECT
+        provider_id, token_fingerprint, model_id, display_name, description,
+        status, last_checked_at, expires_at, deny_code, deny_message
+      FROM model_access_cache
+      WHERE provider_id = ? AND token_fingerprint = ?`
+    )
+    .all(providerId, tokenFingerprint) as ModelAccessCacheRow[]
+}
+
+export function getUsableModelAccessCacheRows(
+  providerId: string,
+  tokenFingerprint: string,
+  now: number
+): ModelAccessCacheRow[] {
+  return db
+    .prepare(
+      `SELECT
+        provider_id, token_fingerprint, model_id, display_name, description,
+        status, last_checked_at, expires_at, deny_code, deny_message
+      FROM model_access_cache
+      WHERE provider_id = ?
+        AND token_fingerprint = ?
+        AND status IN ('verified', 'stale')
+        AND expires_at > ?
+      ORDER BY last_checked_at DESC`
+    )
+    .all(providerId, tokenFingerprint, now) as ModelAccessCacheRow[]
+}
+
+export function deleteModelAccessCacheForProvider(
+  providerId: string,
+  tokenFingerprint?: string
+): void {
+  if (tokenFingerprint) {
+    db.prepare('DELETE FROM model_access_cache WHERE provider_id = ? AND token_fingerprint = ?').run(
+      providerId,
+      tokenFingerprint
+    )
+    return
+  }
+  db.prepare('DELETE FROM model_access_cache WHERE provider_id = ?').run(providerId)
+}
+
+export function deleteExpiredModelAccessCache(now: number): void {
+  db.prepare('DELETE FROM model_access_cache WHERE expires_at <= ?').run(now)
+}
+
+export function deleteModelAccessCacheMissingModels(
+  providerId: string,
+  tokenFingerprint: string,
+  modelIds: string[]
+): void {
+  if (modelIds.length === 0) {
+    db.prepare('DELETE FROM model_access_cache WHERE provider_id = ? AND token_fingerprint = ?').run(
+      providerId,
+      tokenFingerprint
+    )
+    return
+  }
+
+  const placeholders = modelIds.map(() => '?').join(', ')
+  db.prepare(
+    `DELETE FROM model_access_cache
+      WHERE provider_id = ?
+        AND token_fingerprint = ?
+        AND model_id NOT IN (${placeholders})`
+  ).run(providerId, tokenFingerprint, ...modelIds)
+}
+
+export function upsertProviderDiscoveryState(row: ProviderDiscoveryStateRow): void {
+  db.prepare(
+    `INSERT INTO provider_discovery_state (
+      provider_id, token_fingerprint, last_refresh_at, refresh_status, error_code, error_message
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(provider_id, token_fingerprint)
+    DO UPDATE SET
+      last_refresh_at = excluded.last_refresh_at,
+      refresh_status = excluded.refresh_status,
+      error_code = excluded.error_code,
+      error_message = excluded.error_message`
+  ).run(
+    row.provider_id,
+    row.token_fingerprint,
+    row.last_refresh_at,
+    row.refresh_status,
+    row.error_code,
+    row.error_message
+  )
+}
+
+export function getProviderDiscoveryStateRow(
+  providerId: string,
+  tokenFingerprint: string
+): ProviderDiscoveryStateRow | undefined {
+  return db
+    .prepare(
+      `SELECT
+        provider_id, token_fingerprint, last_refresh_at, refresh_status, error_code, error_message
+      FROM provider_discovery_state
+      WHERE provider_id = ? AND token_fingerprint = ?`
+    )
+    .get(providerId, tokenFingerprint) as ProviderDiscoveryStateRow | undefined
+}
+
+export function deleteProviderDiscoveryState(
+  providerId: string,
+  tokenFingerprint?: string
+): void {
+  if (tokenFingerprint) {
+    db.prepare(
+      'DELETE FROM provider_discovery_state WHERE provider_id = ? AND token_fingerprint = ?'
+    ).run(providerId, tokenFingerprint)
+    return
+  }
+  db.prepare('DELETE FROM provider_discovery_state WHERE provider_id = ?').run(providerId)
 }
 
 // --- Conversations ---

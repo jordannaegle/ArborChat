@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 import { ModelSelector } from '../../ModelSelector'
-import { PROVIDERS, ProviderInfo } from '../../../types'
+import { PROVIDERS, ProviderInfo, ProviderValidationResult } from '../../../types'
 import { ProviderIcon } from '../../icons'
 
 interface APIKeysSectionProps {
@@ -54,6 +54,25 @@ export function APIKeysSection({ selectedModel, onModelChange }: APIKeysSectionP
     loadConfiguredProviders()
   }, [loadConfiguredProviders])
 
+  const validationMessage = (result: ProviderValidationResult): string => {
+    if (result.message) {
+      return result.message
+    }
+
+    switch (result.status) {
+      case 'invalid_key':
+        return 'This key looks invalid or expired.'
+      case 'insufficient_scope':
+        return 'This key is valid but missing required model permissions.'
+      case 'rate_limited':
+        return 'Provider rate limits are currently preventing validation.'
+      case 'network_error':
+        return 'Could not reach the provider to validate right now.'
+      default:
+        return 'Unable to validate this key right now.'
+    }
+  }
+
   const handleSaveKey = async (providerId: string) => {
     if (!keyInput.trim()) return
 
@@ -69,23 +88,25 @@ export function APIKeysSection({ selectedModel, onModelChange }: APIKeysSectionP
 
     try {
       // Validate the key with the provider
-      const isValid = await window.api.credentials.validateKey(providerId, keyInput.trim())
+      const validation = await window.api.credentials.validateKey(providerId, keyInput.trim())
 
-      if (!isValid) {
+      if (validation.status !== 'ok') {
+        const message = validationMessage(validation)
         setProviders((prev) =>
           prev.map((p) =>
             p.id === providerId
-              ? { ...p, isValidating: false, validationError: 'Invalid API key' }
+              ? { ...p, isValidating: false, validationError: message }
               : p
           )
         )
-        setError('Invalid API key. Please check and try again.')
+        setError(message)
         setLoading(false)
         return
       }
 
       // Save the validated key
       await window.api.credentials.setKey(providerId, keyInput.trim())
+      await window.api.models.refreshProvider(providerId)
 
       setProviders((prev) =>
         prev.map((p) =>
@@ -109,6 +130,7 @@ export function APIKeysSection({ selectedModel, onModelChange }: APIKeysSectionP
   const handleDeleteKey = async (providerId: string) => {
     try {
       await window.api.credentials.deleteKey(providerId)
+      await window.api.models.refreshProvider(providerId)
       setProviders((prev) => prev.map((p) => (p.id === providerId ? { ...p, hasKey: false } : p)))
       setExpandedProvider(null)
     } catch (err) {

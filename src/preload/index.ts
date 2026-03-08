@@ -470,7 +470,10 @@ const credentialsApi = {
 
   // Validate an API key with the provider
   validateKey: (providerId: string, apiKey: string) =>
-    ipcRenderer.invoke('credentials:validate-key', { providerId, apiKey }) as Promise<boolean>
+    ipcRenderer.invoke('credentials:validate-key', { providerId, apiKey }) as Promise<{
+      status: 'ok' | 'invalid_key' | 'insufficient_scope' | 'network_error' | 'rate_limited'
+      message?: string
+    }>
 }
 
 // MCP API for tool execution
@@ -1090,6 +1093,72 @@ const tokenizerApi = {
     ipcRenderer.invoke('tokenizer:stats')
 }
 
+const modelsApi = {
+  getCatalog: () =>
+    ipcRenderer.invoke('models:get-catalog') as Promise<{
+      models: import('../renderer/src/types').Model[]
+      providerStates: Record<string, {
+        providerId: string
+        status: 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+        modelCount: number
+        lastRefreshAt?: number
+        message?: string
+      }>
+      refreshedAt: number
+    }>,
+
+  refreshProvider: (providerId: string) =>
+    ipcRenderer.invoke('models:refresh-provider', { providerId }) as Promise<{
+      models: import('../renderer/src/types').Model[]
+      providerStates: Record<string, {
+        providerId: string
+        status: 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+        modelCount: number
+        lastRefreshAt?: number
+        message?: string
+      }>
+      refreshedAt: number
+    }>,
+
+  ensureUsable: (modelId: string) =>
+    ipcRenderer.invoke('models:ensure-usable', { modelId }) as Promise<{
+      usable: boolean
+      requestedModelId: string
+      resolvedModelId: string | null
+      providerId: string | null
+      switched: boolean
+      reason?: string
+    }>,
+
+  onUpdated: (callback: (catalog: {
+    models: import('../renderer/src/types').Model[]
+    providerStates: Record<string, {
+      providerId: string
+      status: 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+      modelCount: number
+      lastRefreshAt?: number
+      message?: string
+    }>
+    refreshedAt: number
+  }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: {
+      models: import('../renderer/src/types').Model[]
+      providerStates: Record<string, {
+        providerId: string
+        status: 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+        modelCount: number
+        lastRefreshAt?: number
+        message?: string
+      }>
+      refreshedAt: number
+    }) => {
+      callback(data)
+    }
+    ipcRenderer.on('models:updated', listener)
+    return () => ipcRenderer.removeListener('models:updated', listener)
+  }
+}
+
 // Custom APIs for renderer
 const api = {
   // File system dialogs
@@ -1113,6 +1182,7 @@ const api = {
   setDockIcon: (themeId: string) => ipcRenderer.invoke('theme:set-dock-icon', themeId),
   // Model Discovery
   getAvailableModels: (apiKey?: string) => ipcRenderer.invoke('models:get-available', { apiKey }),
+  models: modelsApi,
   checkOllamaConnection: () => ipcRenderer.invoke('ollama:check-connection'),
   // AI Communication
   askAI: (apiKey: string, messages: any[], model: string) =>

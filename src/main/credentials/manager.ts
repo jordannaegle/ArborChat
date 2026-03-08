@@ -76,6 +76,15 @@ class CredentialManager {
   }
 
   /**
+   * Read API key without updating usage metadata.
+   * Useful for background discovery flows where "last used" should not change.
+   */
+  async peekApiKey(providerId: ProviderId): Promise<string | null> {
+    const credentials = await this.loadCredentials()
+    return credentials.providers[providerId]?.apiKey || null
+  }
+
+  /**
    * Set API key for a specific provider
    */
   async setApiKey(providerId: ProviderId, apiKey: string): Promise<void> {

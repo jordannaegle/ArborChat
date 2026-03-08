@@ -1,4 +1,4 @@
-import { AIModel, StreamParams } from './types'
+import { AIModel, ModelProbeResult, ProviderValidationResult, StreamParams } from './types'
 
 /**
  * Abstract interface that all AI providers must implement
@@ -12,9 +12,9 @@ export interface AIProvider {
   /**
    * Validates that the provider is properly configured and accessible
    * @param apiKey - Optional API key for cloud providers
-   * @returns Promise resolving to true if connection is valid
+   * @returns Structured validation status
    */
-  validateConnection(apiKey?: string): Promise<boolean>
+  validateConnection(apiKey?: string): Promise<ProviderValidationResult>
 
   /**
    * Retrieves list of available models from this provider
@@ -22,6 +22,17 @@ export interface AIProvider {
    * @returns Promise resolving to array of available models
    */
   getAvailableModels(apiKey?: string): Promise<AIModel[]>
+
+  /**
+   * Retrieves provider models that are candidates for chat generation.
+   * Returned list should include model metadata but not access verification.
+   */
+  listCandidateModels(apiKey: string): Promise<AIModel[]>
+
+  /**
+   * Probes whether the provided model is actually usable with this token.
+   */
+  probeModelAccess(model: AIModel, apiKey: string): Promise<ModelProbeResult>
 
   /**
    * Streams a response from the AI model

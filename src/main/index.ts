@@ -41,7 +41,15 @@ import {
   getOllamaServerUrl,
   setOllamaServerUrl
 } from './db'
-import { getAllAvailableModels } from './models'
+import {
+  ensureUsableModel,
+  getAllAvailableModels,
+  getModelCatalog,
+  handleProviderKeyChange,
+  onModelCatalogUpdated,
+  refreshAllProviders,
+  refreshProviderModels
+} from './models'
 import { OllamaProvider } from './providers/ollama'
 import { setupMCPHandlers, mcpManager } from './mcp'
 import { setupProjectAnalyzerHandlers } from './projectAnalyzer'
@@ -226,10 +234,26 @@ app.whenReady().then(() => {
     return getAllAvailableModels(apiKey, ollamaUrl)
   })
 
+  ipcMain.handle('models:get-catalog', async () => {
+    const ollamaUrl = getOllamaServerUrl()
+    return getModelCatalog(ollamaUrl)
+  })
+
+  ipcMain.handle('models:refresh-provider', async (_, { providerId }) => {
+    const ollamaUrl = getOllamaServerUrl()
+    return refreshProviderModels(providerId as ProviderId, ollamaUrl)
+  })
+
+  ipcMain.handle('models:ensure-usable', async (_, { modelId }) => {
+    const ollamaUrl = getOllamaServerUrl()
+    return ensureUsableModel(modelId, ollamaUrl)
+  })
+
   ipcMain.handle('ollama:check-connection', async () => {
     const ollamaUrl = getOllamaServerUrl()
     const ollamaProvider = new OllamaProvider(ollamaUrl)
-    return ollamaProvider.validateConnection()
+    const validation = await ollamaProvider.validateConnection()
+    return validation.status === 'ok'
   })
 
   // Credential Management Handlers
@@ -247,11 +271,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('credentials:set-key', async (_, { providerId, apiKey }) => {
     await credentialManager.setApiKey(providerId as ProviderId, apiKey)
+    const ollamaUrl = getOllamaServerUrl()
+    void handleProviderKeyChange(providerId as ProviderId, ollamaUrl)
     return { success: true }
   })
 
   ipcMain.handle('credentials:delete-key', async (_, providerId: string) => {
     await credentialManager.deleteApiKey(providerId as ProviderId)
+    const ollamaUrl = getOllamaServerUrl()
+    void handleProviderKeyChange(providerId as ProviderId, ollamaUrl)
     return { success: true }
   })
 
@@ -279,7 +307,7 @@ app.whenReady().then(() => {
         return new MistralProvider().validateConnection(apiKey)
       }
       default:
-        return false
+        return { status: 'invalid_key', message: 'Unknown provider' }
     }
   })
 
@@ -402,13 +430,40 @@ app.whenReady().then(() => {
   ipcMain.on('ai:ask', (event, { apiKey, messages, model }) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
-      import('./ai').then(({ streamResponse }) => {
-        streamResponse(win, apiKey, messages, model)
-      })
+      import('./ai')
+        .then(({ streamResponse }) => {
+          return streamResponse(win, apiKey, messages, model).catch((error) => {
+            // Provider code already emits ai:error; this prevents process-level
+            // unhandled rejection warnings from bubbling in Electron.
+            console.error('[AI] streamResponse unhandled error:', error)
+          })
+        })
+        .catch((error) => {
+          console.error('[AI] Failed to load AI module:', error)
+          win.webContents.send('ai:error', 'Failed to initialize AI provider')
+        })
     }
   })
 
   initDB()
+
+  const unsubscribeModelUpdates = onModelCatalogUpdated((catalog) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('models:updated', catalog)
+      }
+    }
+  })
+
+  app.once('before-quit', () => {
+    unsubscribeModelUpdates()
+  })
+
+  // Warm provider model catalogs on startup so the selector has verified results quickly.
+  const startupOllamaUrl = getOllamaServerUrl()
+  void refreshAllProviders(startupOllamaUrl).catch((error) => {
+    console.warn('[Models] Startup refresh failed:', error)
+  })
 
   // Initialize tokenizer service for accurate token counting
   tokenizer.init().catch(err => console.error('[Tokenizer] Init error:', err))

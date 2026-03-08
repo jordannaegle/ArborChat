@@ -1,6 +1,8 @@
 import { AIProvider } from './base'
 import {
   AIModel,
+  ModelProbeResult,
+  ProviderValidationResult,
   StreamParams,
   OllamaTagsResponse,
   OllamaChatRequest,
@@ -32,7 +34,7 @@ export class OllamaProvider implements AIProvider {
     return knownPrefixes.some((prefix) => modelId.toLowerCase().startsWith(prefix))
   }
 
-  async validateConnection(_apiKey?: string): Promise<boolean> {
+  async validateConnection(_apiKey?: string): Promise<ProviderValidationResult> {
     console.log('[Ollama] Validating connection to:', this.baseUrl)
     try {
       const controller = new AbortController()
@@ -46,14 +48,14 @@ export class OllamaProvider implements AIProvider {
 
       if (response.ok) {
         console.log('[Ollama] Connection successful')
-        return true
+        return { status: 'ok' }
       } else {
         console.error('[Ollama] Connection failed with status:', response.status)
-        return false
+        return { status: 'network_error', message: `Ollama request failed (${response.status})` }
       }
     } catch (error) {
       console.error('[Ollama] Connection error:', error)
-      return false
+      return { status: 'network_error', message: 'Unable to reach Ollama' }
     }
   }
 
@@ -88,6 +90,14 @@ export class OllamaProvider implements AIProvider {
       console.error('[Ollama] Error fetching models:', error)
       return []
     }
+  }
+
+  async listCandidateModels(_apiKey: string): Promise<AIModel[]> {
+    return this.getAvailableModels()
+  }
+
+  async probeModelAccess(_model: AIModel, _apiKey: string): Promise<ModelProbeResult> {
+    return { status: 'verified' }
   }
 
   private formatModelName(name: string): string {

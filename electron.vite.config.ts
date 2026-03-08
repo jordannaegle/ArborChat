@@ -1,5 +1,5 @@
 import { resolve } from 'path'
-import { defineConfig } from 'electron-vite'
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -19,8 +19,12 @@ if (!crypto.hash) {
 }
 
 export default defineConfig({
-  main: {},
-  preload: {},
+  main: {
+    plugins: [externalizeDepsPlugin({ exclude: ['@electron-toolkit/utils'] })]
+  },
+  preload: {
+    plugins: [externalizeDepsPlugin({ exclude: ['@electron-toolkit/utils'] })]
+  },
   renderer: {
     resolve: {
       alias: {

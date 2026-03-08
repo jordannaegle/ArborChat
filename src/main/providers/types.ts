@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import type { ProviderId } from '../credentials'
 
 /**
  * Represents a message in the conversation
@@ -27,6 +28,48 @@ export interface AIModel {
   description: string
   provider: 'gemini' | 'ollama' | 'anthropic' | 'github' | 'openai' | 'mistral'
   isLocal: boolean
+}
+
+export type ModelAccessStatus = 'verified' | 'denied' | 'transient_error' | 'stale'
+export type ProviderValidationStatus =
+  | 'ok'
+  | 'invalid_key'
+  | 'insufficient_scope'
+  | 'network_error'
+  | 'rate_limited'
+
+export interface ProviderValidationResult {
+  status: ProviderValidationStatus
+  message?: string
+}
+
+export interface ModelProbeResult {
+  status: Extract<ModelAccessStatus, 'verified' | 'denied' | 'transient_error'>
+  code?: string
+  message?: string
+}
+
+export interface ProviderDiscoveryState {
+  providerId: ProviderId
+  status: 'idle' | 'refreshing' | 'ready' | 'no_key' | 'error'
+  modelCount: number
+  lastRefreshAt?: number
+  message?: string
+}
+
+export interface ModelDiscoveryResult {
+  models: AIModel[]
+  providerStates: Record<ProviderId, ProviderDiscoveryState>
+  refreshedAt: number
+}
+
+export interface EnsureUsableModelResult {
+  usable: boolean
+  requestedModelId: string
+  resolvedModelId: string | null
+  providerId: ProviderId | null
+  switched: boolean
+  reason?: string
 }
 
 /**

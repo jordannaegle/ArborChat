@@ -115,6 +115,7 @@ function AppContent({ apiKey }: { apiKey: string }) {
   const [pending, setPending] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const streamBufferRef = useRef('')
+  const streamFlushRafRef = useRef<number | null>(null)
   
   // Tool chat integration
   const {
@@ -131,6 +132,7 @@ function AppContent({ apiKey }: { apiKey: string }) {
     handleToolApprove,
     handleToolReject,
     clearPendingTool,
+    clearToolExecutions,
     fetchMemoryContext,
     resetMemoryStatus
   } = useToolChat()
@@ -157,6 +159,28 @@ function AppContent({ apiKey }: { apiKey: string }) {
   const pendingParentIdRef = useRef<string | null>(null)
   // Ref to track native function calls from providers like Anthropic
   const nativeFunctionCallRef = useRef<{ name: string; args: Record<string, unknown> } | null>(null)
+  const activeStreamModelRef = useRef<string>(selectedModel)
+
+  const cancelScheduledStreamingFlush = useCallback(() => {
+    if (streamFlushRafRef.current !== null) {
+      cancelAnimationFrame(streamFlushRafRef.current)
+      streamFlushRafRef.current = null
+    }
+  }, [])
+
+  const scheduleStreamingFlush = useCallback(() => {
+    if (streamFlushRafRef.current !== null) return
+
+    streamFlushRafRef.current = requestAnimationFrame(() => {
+      streamFlushRafRef.current = null
+      setStreamingContent(streamBufferRef.current)
+    })
+  }, [])
+
+  const flushStreamingContent = useCallback(() => {
+    cancelScheduledStreamingFlush()
+    setStreamingContent(streamBufferRef.current)
+  }, [cancelScheduledStreamingFlush])
 
   // Init - load persisted model selection
   useEffect(() => {
@@ -164,6 +188,10 @@ function AppContent({ apiKey }: { apiKey: string }) {
       if (model) setSelectedModelState(model)
     })
   }, [])
+
+  useEffect(() => {
+    activeStreamModelRef.current = selectedModel
+  }, [selectedModel])
 
   useEffect(() => {
     refreshConversations()
@@ -174,23 +202,33 @@ function AppContent({ apiKey }: { apiKey: string }) {
       // CRITICAL: Clear all message and streaming state synchronously FIRST
       // This prevents old chat content from flashing during the async fetch
       setAllMessages([])
+      cancelScheduledStreamingFlush()
       setStreamingContent('')
       streamBufferRef.current = ''
       setPending(false)
       setActiveThreadRootId(null)
       clearPendingTool()
+      clearToolExecutions()
       resetMemoryStatus() // Reset memory status for new conversation
       
       // Then fetch messages for the new conversation
       window.api.getMessages(activeId).then(setAllMessages)
     } else {
       setAllMessages([])
+      cancelScheduledStreamingFlush()
       setStreamingContent('')
       streamBufferRef.current = ''
       setPending(false)
+      clearToolExecutions()
       resetMemoryStatus()
     }
-  }, [activeId, clearPendingTool, resetMemoryStatus])
+  }, [activeId, clearPendingTool, clearToolExecutions, resetMemoryStatus, cancelScheduledStreamingFlush])
+
+  useEffect(() => {
+    return () => {
+      cancelScheduledStreamingFlush()
+    }
+  }, [cancelScheduledStreamingFlush])
 
   // Load personas list on mount (Phase 5)
   useEffect(() => {
@@ -367,22 +405,35 @@ function AppContent({ apiKey }: { apiKey: string }) {
 
 
   // Stream AI response with tool detection
-  const streamAI = useCallback((context: any[], parentId: string | null) => {
+  const streamAI = useCallback((context: any[], parentId: string | null, retryAllowed: boolean = true) => {
     console.log('[App] streamAI called, context length:', context.length, 'activeId:', activeId)
+    cancelScheduledStreamingFlush()
     setPending(true)
     setStreamingContent('')
     streamBufferRef.current = ''
     nativeFunctionCallRef.current = null  // Reset native function call
     pendingContextRef.current = context
     pendingParentIdRef.current = parentId
+    activeStreamModelRef.current = selectedModel
+
+    const isModelAccessError = (errorMessage: string): boolean => {
+      const normalized = errorMessage.toLowerCase()
+      return (
+        normalized.includes('no access to model') ||
+        normalized.includes('no_access') ||
+        normalized.includes('permissiondeniederror') ||
+        normalized.includes('403')
+      )
+    }
 
     const cleanup = () => {
       window.api.offAI()
+      cancelScheduledStreamingFlush()
     }
 
     window.api.onToken((token) => {
       streamBufferRef.current += token
-      setStreamingContent(streamBufferRef.current)
+      scheduleStreamingFlush()
       // Log first token to confirm tokens are being received
       if (streamBufferRef.current.length === token.length) {
         console.log('[App] First token received, starting stream')
@@ -398,6 +449,7 @@ function AppContent({ apiKey }: { apiKey: string }) {
     }
 
     window.api.onDone(async () => {
+      flushStreamingContent()
       const finalContent = streamBufferRef.current
       const nativeFunctionCall = nativeFunctionCallRef.current
       console.log('[App] onDone fired - finalContent length:', finalContent.length, 'nativeFunctionCall:', nativeFunctionCall?.name || 'none')
@@ -538,24 +590,110 @@ function AppContent({ apiKey }: { apiKey: string }) {
       }
     })
 
-    window.api.onError((err) => {
+    window.api.onError(async (err) => {
       console.error(err)
       cleanup()
+
+      if (retryAllowed && isModelAccessError(err)) {
+        try {
+          const requestedModel = activeStreamModelRef.current || selectedModel
+          const ensureResult = await window.api.models.ensureUsable(requestedModel)
+          const fallbackModel = ensureResult.resolvedModelId
+
+          if (fallbackModel && fallbackModel !== requestedModel) {
+            setSelectedModel(fallbackModel)
+
+            const noticeMsg = {
+              id: 'model-switch-' + Date.now(),
+              conversation_id: activeId!,
+              role: 'assistant' as const,
+              content: `ℹ️ Switched from \`${requestedModel}\` to \`${fallbackModel}\` because your token does not have access to the previous model. Retrying automatically.`,
+              parent_message_id: parentId,
+              created_at: new Date().toISOString()
+            }
+            setAllMessages((prev) => [...prev, noticeMsg])
+
+            streamAI(pendingContextRef.current, pendingParentIdRef.current, false)
+            return
+          }
+        } catch (recoveryError) {
+          console.error('[App] Model access recovery failed:', recoveryError)
+        }
+      }
+
       setPending(false)
 
       const errorMsg = {
         id: 'error-' + Date.now(),
         conversation_id: activeId!,
         role: 'assistant' as const,
-        content: `⚠️ **Error**: ${err}. Please check your API Key quota.`,
+        content: isModelAccessError(err)
+          ? '⚠️ **Error**: The selected model is not accessible with this token, and no fallback model was available.'
+          : `⚠️ **Error**: ${err}. Please check your API key, model access, and provider status.`,
         parent_message_id: parentId,
         created_at: new Date().toISOString()
       }
       setAllMessages((prev) => [...prev, errorMsg])
     })
 
-    window.api.askAI(apiKey, context, selectedModel)
-  }, [activeId, apiKey, selectedModel, parseToolCall, showToolApprovalCard, executeToolDirectly])
+    void (async () => {
+      try {
+        const ensureResult = await window.api.models.ensureUsable(selectedModel)
+        const resolvedModel = ensureResult.resolvedModelId
+
+        if (!ensureResult.usable && !resolvedModel) {
+          cleanup()
+          setPending(false)
+
+          const noModelMsg = {
+            id: 'no-model-' + Date.now(),
+            conversation_id: activeId!,
+            role: 'assistant' as const,
+            content:
+              ensureResult.reason ||
+              'No verified model is available for this provider token. Add or update a token in Settings.',
+            parent_message_id: parentId,
+            created_at: new Date().toISOString()
+          }
+          setAllMessages((prev) => [...prev, noModelMsg])
+          return
+        }
+
+        const modelForRequest = resolvedModel || selectedModel
+        if (modelForRequest !== selectedModel) {
+          setSelectedModel(modelForRequest)
+        }
+
+        activeStreamModelRef.current = modelForRequest
+        window.api.askAI(apiKey, context, modelForRequest)
+      } catch (ensureError) {
+        cleanup()
+        setPending(false)
+
+        const message = ensureError instanceof Error ? ensureError.message : 'Unable to verify model access'
+        const errorMsg = {
+          id: 'ensure-usable-error-' + Date.now(),
+          conversation_id: activeId!,
+          role: 'assistant' as const,
+          content: `⚠️ **Error**: ${message}`,
+          parent_message_id: parentId,
+          created_at: new Date().toISOString()
+        }
+        setAllMessages((prev) => [...prev, errorMsg])
+      }
+    })()
+  }, [
+    activeId,
+    apiKey,
+    selectedModel,
+    setSelectedModel,
+    parseToolCall,
+    showToolApprovalCard,
+    executeToolDirectly,
+    cancelScheduledStreamingFlush,
+    scheduleStreamingFlush,
+    flushStreamingContent
+  ])
 
 
   // Handle sending a message

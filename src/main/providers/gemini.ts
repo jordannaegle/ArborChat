@@ -1,44 +1,65 @@
 import { GoogleGenerativeAI, type Tool } from '@google/generative-ai'
 import { AIProvider } from './base'
-import { AIModel, StreamParams } from './types'
+import { AIModel, ModelProbeResult, ProviderValidationResult, StreamParams } from './types'
 import { toGeminiFunctions } from './toolFormatter'
 import { mcpManager } from '../mcp/manager'
 
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
+const GEMINI_VALIDATION_TIMEOUT = 10000
 
 /**
  * Available Gemini models
  */
-const GEMINI_MODELS: AIModel[] = [
-  {
-    id: 'gemini-2.0-flash',
+const GEMINI_MODEL_LABELS: Record<string, { name: string; description: string }> = {
+  'gemini-2.0-flash': {
     name: 'Gemini 2.0 Flash',
-    description: 'Fast & cost-effective',
-    provider: 'gemini',
-    isLocal: false
+    description: 'Fast and cost-effective'
   },
-  {
-    id: 'gemini-2.5-flash',
+  'gemini-2.5-flash': {
     name: 'Gemini 2.5 Flash',
-    description: 'Balanced speed & capability',
-    provider: 'gemini',
-    isLocal: false
+    description: 'Balanced speed and capability'
   },
-  {
-    id: 'gemini-2.5-flash-lite',
+  'gemini-2.5-flash-lite': {
     name: 'Gemini 2.5 Flash Lite',
-    description: 'Fastest, lowest latency',
-    provider: 'gemini',
-    isLocal: false
+    description: 'Lowest latency Gemini option'
   },
-  {
-    id: 'gemini-2.5-pro',
+  'gemini-2.5-pro': {
     name: 'Gemini 2.5 Pro',
-    description: 'Advanced reasoning',
+    description: 'Advanced reasoning model'
+  }
+}
+
+interface GeminiModelListItem {
+  name?: string
+  supportedGenerationMethods?: string[]
+}
+
+function formatGeminiModelName(modelId: string): string {
+  const known = GEMINI_MODEL_LABELS[modelId]
+  if (known) return known.name
+  return modelId.replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+function formatGeminiDescription(modelId: string): string {
+  return GEMINI_MODEL_LABELS[modelId]?.description || 'Google Gemini model'
+}
+
+function isChatCapableGeminiModel(model: GeminiModelListItem): boolean {
+  const id = model.name?.replace(/^models\//, '') || ''
+  if (!id.startsWith('gemini-')) return false
+  const methods = model.supportedGenerationMethods || []
+  return methods.includes('generateContent')
+}
+
+function toGeminiModel(modelId: string): AIModel {
+  return {
+    id: modelId,
+    name: formatGeminiModelName(modelId),
+    description: formatGeminiDescription(modelId),
     provider: 'gemini',
     isLocal: false
   }
-]
+}
 
 /**
  * Helper for exponential backoff retry logic
@@ -72,32 +93,120 @@ export class GeminiProvider implements AIProvider {
   readonly name = 'gemini'
 
   canHandleModel(modelId: string): boolean {
-    return GEMINI_MODELS.some((m) => m.id === modelId)
+    return modelId.startsWith('gemini-')
   }
 
-  async validateConnection(apiKey?: string): Promise<boolean> {
-    if (!apiKey) {
-      console.error('[Gemini] No API key provided')
-      return false
+  async validateConnection(apiKey?: string): Promise<ProviderValidationResult> {
+    const trimmedKey = apiKey?.trim()
+    if (!trimmedKey) {
+      return { status: 'invalid_key', message: 'No API key provided' }
     }
 
     console.log('[Gemini] validateConnection called')
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), GEMINI_VALIDATION_TIMEOUT)
+
     try {
-      const genAI = new GoogleGenerativeAI(apiKey)
-      const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL }, { apiVersion: 'v1beta' })
-      console.log('[Gemini] Sending test ping...')
-      await model.generateContent('ping')
-      console.log('[Gemini] Test ping successful!')
-      return true
+      const response = await fetch(
+        `${GEMINI_MODELS_ENDPOINT}?pageSize=1&key=${encodeURIComponent(trimmedKey)}`,
+        { signal: controller.signal }
+      )
+
+      if (!response.ok) {
+        console.error('[Gemini] Validation failed with status:', response.status)
+        if (response.status === 401) {
+          return { status: 'invalid_key', message: 'Gemini API key is invalid or expired' }
+        }
+        if (response.status === 403) {
+          return { status: 'insufficient_scope', message: 'Gemini API key lacks required access' }
+        }
+        if (response.status === 429) {
+          return { status: 'rate_limited', message: 'Gemini validation hit rate limits' }
+        }
+        return { status: 'network_error', message: 'Gemini validation request failed' }
+      }
+
+      console.log('[Gemini] Validation successful!')
+      return { status: 'ok' }
     } catch (e) {
       console.error('[Gemini] validateConnection ERROR:', e)
-      return false
+      return { status: 'network_error', message: 'Unable to reach Gemini right now' }
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 
   async getAvailableModels(_apiKey?: string): Promise<AIModel[]> {
-    // Gemini models are static
-    return GEMINI_MODELS
+    const trimmedKey = _apiKey?.trim()
+    if (!trimmedKey) {
+      return []
+    }
+    return this.listCandidateModels(trimmedKey)
+  }
+
+  async listCandidateModels(apiKey: string): Promise<AIModel[]> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), GEMINI_VALIDATION_TIMEOUT)
+
+    try {
+      const response = await fetch(
+        `${GEMINI_MODELS_ENDPOINT}?key=${encodeURIComponent(apiKey)}`,
+        { signal: controller.signal }
+      )
+
+      if (response.status === 401 || response.status === 403) {
+        return []
+      }
+      if (!response.ok) {
+        console.error('[Gemini] getAvailableModels failed with status:', response.status)
+        return []
+      }
+
+      const payload = (await response.json()) as {
+        models?: GeminiModelListItem[]
+      }
+      return (payload.models || [])
+        .filter((model) => isChatCapableGeminiModel(model))
+        .map((model) => model.name?.replace(/^models\//, ''))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .map((id) => toGeminiModel(id))
+    } catch (error: unknown) {
+      console.error('[Gemini] getAvailableModels ERROR:', error)
+      return []
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
+  async probeModelAccess(model: AIModel, apiKey: string): Promise<ModelProbeResult> {
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const geminiModel = genAI.getGenerativeModel({ model: model.id }, { apiVersion: 'v1beta' })
+      await geminiModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+        generationConfig: { maxOutputTokens: 1, temperature: 0 }
+      })
+      return { status: 'verified' }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.includes('401') || message.includes('API key not valid')) {
+        return { status: 'denied', code: 'invalid_key', message: 'Invalid Gemini API key' }
+      }
+      if (message.includes('403') || message.includes('PERMISSION_DENIED')) {
+        return { status: 'denied', code: 'insufficient_scope', message: `No access to ${model.id}` }
+      }
+      if (message.includes('429') || message.includes('RESOURCE_EXHAUSTED')) {
+        return { status: 'transient_error', code: 'rate_limited', message: 'Rate limited probing model access' }
+      }
+      if (message.includes('500') || message.includes('503') || message.includes('UNAVAILABLE')) {
+        return { status: 'transient_error', code: 'provider_error', message: 'Gemini service unavailable' }
+      }
+      if (message.includes('400') || message.includes('404')) {
+        return { status: 'denied', code: 'unsupported', message: `${model.id} is not usable for chat` }
+      }
+      return { status: 'transient_error', code: 'network_error', message: 'Network error probing model access' }
+    }
   }
 
   async streamResponse(params: StreamParams, apiKey?: string): Promise<void> {
